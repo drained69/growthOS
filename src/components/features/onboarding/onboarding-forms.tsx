@@ -1,55 +1,97 @@
 "use client";
-import { useActionState, useEffect, useTransition, useState } from "react";
+import { useActionState, useEffect, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { onboardProductAction, onboardMissionAction, onboardAutonomyAction, onboardIcpAction } from "@/server/actions";
-import { Btn, cx } from "@/components/ui";
+import { ArrowRight, Check, Sparkles } from "lucide-react";
+import { onboardAutonomyAction, onboardIcpAction, onboardMissionAction, onboardProductAction } from "@/server/actions/onboarding";
+import { Button, Callout, Field, Input, Textarea, cn } from "@/components/ui";
+import { toast } from "@/components/ui/toast";
 
-const field = "w-full rounded border border-line bg-bg px-2.5 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-4 focus:border-s1";
+function StepFooter({ children, error, note }: { children: ReactNode; error?: string | null; note?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
+      <span className="min-w-0 text-[11.5px] text-ink-3">{error ? <span className="text-critical">{error}</span> : note}</span>
+      {children}
+    </div>
+  );
+}
+
+// ───────────────────────────── step 1 ─────────────────────────────
 
 export function ProductStep() {
   const [state, action, pending] = useActionState(onboardProductAction, null);
   const router = useRouter();
   useEffect(() => {
-    if (state?.ok) router.push("/onboarding");
+    if (state?.ok) {
+      if (state.data?.note) toast.info("Profile drafted", state.data.note);
+      router.push("/onboarding");
+      router.refresh();
+    }
   }, [state, router]);
   return (
-    <form action={action} className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block"><span className="label">Product name *</span><input name="name" required className={field} placeholder="Meterline" /></label>
-        <label className="block"><span className="label">Website</span><input name="website" className={field} placeholder="https://…" /></label>
-        <label className="block"><span className="label">Docs</span><input name="docsUrl" className={field} placeholder="https://docs…" /></label>
-        <label className="block"><span className="label">X account</span><input name="xHandle" className={field} placeholder="@handle" /></label>
-        <label className="block sm:col-span-2"><span className="label">GitHub repository</span><input name="githubUrl" className={field} placeholder="https://github.com/org/repo" /></label>
+    <form action={action}>
+      <div className="space-y-4 p-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Product name" htmlFor="ob-name" required>
+            <Input id="ob-name" name="name" required maxLength={80} placeholder="Meterline" autoFocus />
+          </Field>
+          <Field label="Website" htmlFor="ob-web">
+            <Input id="ob-web" name="website" type="url" placeholder="https://…" />
+          </Field>
+          <Field label="Docs" htmlFor="ob-docs">
+            <Input id="ob-docs" name="docsUrl" type="url" placeholder="https://docs…" />
+          </Field>
+          <Field label="X account" htmlFor="ob-x">
+            <Input id="ob-x" name="xHandle" placeholder="@handle" />
+          </Field>
+          <Field label="GitHub repository" htmlFor="ob-gh" className="sm:col-span-2">
+            <Input id="ob-gh" name="githubUrl" type="url" placeholder="https://github.com/org/repo" />
+          </Field>
+        </div>
+        <Field label="Short description" htmlFor="ob-desc" required hint="What it does, and for whom. At least 10 characters.">
+          <Textarea id="ob-desc" name="description" required minLength={10} maxLength={2000} rows={3} placeholder="Usage-based billing API for developer tools…" />
+        </Field>
       </div>
-      <label className="block"><span className="label">Short description *</span><textarea name="description" required minLength={10} rows={3} className={field} placeholder="What it does, for whom." /></label>
-      <div className="flex items-center gap-3">
-        <Btn variant="primary" disabled={pending}>{pending ? "Reading public pages…" : "Build product profile"}</Btn>
-        {state && !state.ok && <span className="text-[12px] text-critical">{state.error}</span>}
-      </div>
-      <p className="text-[11.5px] text-ink-3">GrowthOS reads the public pages you list (respecting robots.txt) and drafts a Product Intelligence Profile. You can correct everything in the next step.</p>
+      <StepFooter error={state && !state.ok ? state.error : null} note="GrowthOS reads only the public pages you list (respecting robots.txt). You can correct everything next.">
+        <Button type="submit" variant="primary" size="md" loading={pending} icon={<Sparkles />}>
+          {pending ? "Reading public pages…" : "Build product profile"}
+        </Button>
+      </StepFooter>
     </form>
   );
 }
 
+// ───────────────────────────── step 2 ─────────────────────────────
+
 export function GenerateIcp() {
   const [pending, start] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
   const router = useRouter();
   return (
-    <div className="flex items-center gap-3">
-      <Btn variant="primary" disabled={pending} onClick={() => start(async () => { const r = await onboardIcpAction(); setMsg(r.ok ? r.message ?? null : r.error); router.refresh(); })}>
-        {pending ? "Proposing ICP…" : "Looks right — propose my ICP →"}
-      </Btn>
-      {msg && <span className="text-[12px] text-ink-3">{msg}</span>}
-    </div>
+    <Button
+      variant="primary"
+      size="md"
+      loading={pending}
+      onClick={() =>
+        start(async () => {
+          const r = await onboardIcpAction();
+          if (r.ok) toast.success("ICP proposed", r.message);
+          else toast.error("Couldn’t propose an ICP", r.error);
+          router.refresh();
+        })
+      }
+    >
+      {pending ? "Proposing ICP…" : "Looks right — propose my ICP"}
+      {!pending && <ArrowRight />}
+    </Button>
   );
 }
 
+// ───────────────────────────── step 3 ─────────────────────────────
+
 const TEMPLATES = [
   { key: "first_100_devs", name: "First 100 Developers", goal: 100, days: 14, budget: "500", desc: "Verified SDK users" },
-  { key: "find_buyers", name: "Find 20 Buyers", goal: 20, days: 7, budget: "100", desc: "High-intent qualified companies" },
-  { key: "own_narrative", name: "Own the Narrative", goal: 1000, days: 30, budget: "300", desc: "Qualified visits from a narrative" },
-  { key: "kol_discovery", name: "KOL Discovery", goal: 30, days: 14, budget: "50", desc: "Validate 3 creator campaigns" },
+  { key: "find_buyers", name: "Find 20 Buyers", goal: 20, days: 7, budget: "100", desc: "High-intent qualified companies requesting a demo" },
+  { key: "own_narrative", name: "Own the Narrative", goal: 1000, days: 30, budget: "300", desc: "Qualified visits from a target narrative" },
+  { key: "kol_discovery", name: "KOL Discovery", goal: 30, days: 14, budget: "50", desc: "Signups from validated creator campaigns" },
 ];
 
 export function MissionStep() {
@@ -58,61 +100,140 @@ export function MissionStep() {
   const router = useRouter();
   useEffect(() => {
     if (state?.ok) {
-      if (state.data?.done) router.push("/app/missions");
-      else router.push("/onboarding");
+      router.push(state.data?.done ? "/app/missions" : "/onboarding");
+      router.refresh();
     }
   }, [state, router]);
   return (
-    <form action={action} className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2">
-        {TEMPLATES.map((x) => (
-          <button type="button" key={x.key} onClick={() => setT(x)} className={cx("rounded border px-3 py-2 text-left", t.key === x.key ? "border-s1 bg-s1/10" : "border-line hover:border-line-strong")}>
-            <div className="text-[13px] font-medium">{x.name}</div>
-            <div className="text-[11.5px] text-ink-3">{x.desc}</div>
-          </button>
-        ))}
+    <form action={action}>
+      <div className="space-y-4 p-4">
+        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Mission template">
+          {TEMPLATES.map((x) => {
+            const active = t.key === x.key;
+            return (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={active}
+                key={x.key}
+                onClick={() => setT(x)}
+                className={cn("flex items-start gap-2.5 rounded-[8px] border px-3 py-2.5 text-left transition-colors", active ? "border-accent bg-accent/10 ring-1 ring-accent/30" : "border-line hover:border-line-strong hover:bg-surface-2")}
+              >
+                <span className={cn("mt-0.5 grid size-4 shrink-0 place-items-center rounded-full ring-1 [&_svg]:size-2.5", active ? "bg-accent text-white ring-accent" : "ring-line-strong")}>{active && <Check />}</span>
+                <span>
+                  <span className="block text-[13px] font-medium text-ink">{x.name}</span>
+                  <span className="block text-[11.5px] text-ink-3">{x.desc}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <input type="hidden" name="template" value={t.key} />
+        <div className="grid grid-cols-3 gap-3" key={t.key}>
+          <Field label="Goal" htmlFor="ms-goal">
+            <Input id="ms-goal" name="goal" defaultValue={t.goal} inputMode="numeric" className="num" />
+          </Field>
+          <Field label="Days" htmlFor="ms-days">
+            <Input id="ms-days" name="days" defaultValue={t.days} inputMode="numeric" className="num" />
+          </Field>
+          <Field label="Budget" htmlFor="ms-budget">
+            <div className="relative">
+              <Input id="ms-budget" name="budget" defaultValue={t.budget} inputMode="decimal" className="num pr-12" />
+              <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[11px] text-ink-4">USDC</span>
+            </div>
+          </Field>
+        </div>
       </div>
-      <input type="hidden" name="template" value={t.key} />
-      <div className="grid grid-cols-3 gap-3" key={t.key}>
-        <label className="block"><span className="label">Goal</span><input name="goal" defaultValue={t.goal} className={`${field} num`} /></label>
-        <label className="block"><span className="label">Days</span><input name="days" defaultValue={t.days} className={`${field} num`} /></label>
-        <label className="block"><span className="label">Budget (USDC)</span><input name="budget" defaultValue={t.budget} className={`${field} num`} /></label>
-      </div>
-      <div className="flex items-center gap-3">
-        <Btn variant="primary" disabled={pending}>{pending ? "Saving…" : "Set mission →"}</Btn>
-        {state && !state.ok && <span className="text-[12px] text-critical">{state.error}</span>}
-      </div>
+      <StepFooter error={state && !state.ok ? state.error : null} note="The budget is a ceiling, not a commitment — unspent USDC stays in the wallet.">
+        <Button type="submit" variant="primary" size="md" loading={pending}>
+          Set mission
+          {!pending && <ArrowRight />}
+        </Button>
+      </StepFooter>
     </form>
   );
 }
 
-export function AutonomyStep() {
+// ───────────────────────────── step 4 ─────────────────────────────
+
+const LIMITS = [
+  { name: "maxTransaction", label: "Max autonomous purchase", d: "10", hint: "Above this, every spend needs your approval" },
+  { name: "dailySpend", label: "Max daily spend", d: "50", hint: "Autonomous spend per UTC day" },
+  { name: "kolThreshold", label: "Creator payment approval above", d: "100", hint: "Creator payments above this always need approval" },
+  { name: "bountyThreshold", label: "Bounty approval above", d: "25", hint: "Small bounties are autonomous below this" },
+  { name: "hardCeiling", label: "Hard ceiling", d: "500", hint: "Always denied above — not even an approval can exceed it" },
+];
+
+export function AutonomyStep({ autopilot, demo }: { autopilot: Record<string, string>; demo?: boolean }) {
   const [state, action, pending] = useActionState(onboardAutonomyAction, null);
-  const row = (name: string, label: string, d: string, hint: string) => (
-    <label className="grid grid-cols-[1fr_120px] items-center gap-3 border-b border-line py-2">
-      <span>
-        <span className="text-[13px]">{label}</span>
-        <span className="block text-[11px] text-ink-3">{hint}</span>
-      </span>
-      <span className="flex items-center gap-1"><input name={name} defaultValue={d} className={`${field} num`} /><span className="text-[11px] text-ink-3">USDC</span></span>
-    </label>
-  );
+  const [cadence, setCadence] = useState(demo ? "off" : "every_6h");
   return (
     <form action={action}>
-      {row("maxTransaction", "Max autonomous purchase", "10", "Above this, every spend needs your approval")}
-      {row("dailySpend", "Max daily spend", "50", "Autonomous spend per UTC day")}
-      {row("kolThreshold", "KOL spend requiring approval above", "100", "Creator payments always need approval; this is the per-payment line")}
-      {row("bountyThreshold", "Bounty approval threshold", "25", "Small bounties are autonomous below this")}
-      {row("hardCeiling", "Hard ceiling (always denied above)", "500", "Not even an approval can exceed this")}
-      <div className="mt-3 grid gap-2 text-[12px] sm:grid-cols-3">
-        <div className="rounded border border-good/30 p-2"><div className="label text-good">Allowed</div>Research · Data · API services · Small bounties · Content</div>
-        <div className="rounded border border-warning/30 p-2"><div className="label text-warning">Requires approval</div>KOL payments · Sponsorships · Large bounties · Bridges</div>
-        <div className="rounded border border-critical/30 p-2"><div className="label text-critical">Forbidden</div>Mass unsolicited messaging · automated DMs, cold email, mentions</div>
+      <div className="divide-y divide-line">
+        {LIMITS.map((l) => (
+          <div key={l.name} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-4 px-4 py-3">
+            <label htmlFor={`au-${l.name}`} className="min-w-0">
+              <span className="block text-[12.5px] font-medium text-ink">{l.label}</span>
+              <span className="block text-[11.5px] text-ink-3">{l.hint}</span>
+            </label>
+            <div className="relative">
+              <Input id={`au-${l.name}`} name={l.name} defaultValue={l.d} inputMode="decimal" className="num pr-12 text-right" />
+              <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[11px] text-ink-4">USDC</span>
+            </div>
+          </div>
+        ))}
       </div>
-      <div className="mt-4 flex items-center gap-3">
-        <Btn variant="primary" disabled={pending}>{pending ? "Activating…" : "Activate GrowthOS →"}</Btn>
-        {state && !state.ok && <span className="text-[12px] text-critical">{state.error}</span>}
+
+      <div className="border-t border-line p-4">
+        <div className="text-[12.5px] font-medium text-ink">Autopilot</div>
+        <p className="text-[11.5px] text-ink-3">How often the operator runs a full cycle on its own. You can change this in Settings.</p>
+        <input type="hidden" name="autopilot" value={cadence} />
+        <div className="mt-2.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Autopilot cadence">
+          {Object.entries(autopilot).map(([k, label]) => {
+            const disabled = demo && k !== "off";
+            return (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={cadence === k}
+                disabled={disabled}
+                onClick={() => setCadence(k)}
+                className={cn("h-7 rounded-[6px] border px-2.5 text-[12px] transition-colors disabled:opacity-40", cadence === k ? "border-accent bg-accent/10 text-ink" : "border-line-strong text-ink-3 hover:text-ink")}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      <div className="grid gap-2 border-t border-line p-4 text-[12px] sm:grid-cols-3">
+        <div className="rounded-[8px] border border-good/30 bg-good/[0.04] p-2.5">
+          <div className="label text-good">Autonomous</div>
+          <div className="mt-1 text-ink-2">Research · data · API services · small bounties · content</div>
+        </div>
+        <div className="rounded-[8px] border border-warning/30 bg-warning/[0.04] p-2.5">
+          <div className="label text-warning">Needs approval</div>
+          <div className="mt-1 text-ink-2">Creator payments · sponsorships · large bounties · bridges</div>
+        </div>
+        <div className="rounded-[8px] border border-critical/30 bg-critical/[0.04] p-2.5">
+          <div className="label text-critical">Forbidden</div>
+          <div className="mt-1 text-ink-2">Mass unsolicited messaging · automated DMs, cold email, mentions</div>
+        </div>
+      </div>
+
+      {state && !state.ok && (
+        <div className="px-4 pb-4">
+          <Callout tone="danger">{state.error}</Callout>
+        </div>
+      )}
+      <StepFooter note="Activating queues the first market scan right away.">
+        <Button type="submit" variant="primary" size="md" loading={pending}>
+          {pending ? "Activating…" : "Activate GrowthOS"}
+          {!pending && <ArrowRight />}
+        </Button>
+      </StepFooter>
     </form>
   );
 }

@@ -76,7 +76,7 @@ export default async function Settings() {
 
           <Card id="workspace" className="scroll-mt-4">
             <CardHeader title="Workspace" description="Name and public links for this product." icon={<Building2 />} />
-            <WorkspaceForm w={project} disabled={!canWorkspace} />
+            <WorkspaceForm w={{ name: project.name, website: project.website, docsUrl: project.docsUrl, githubUrl: project.githubUrl, xHandle: project.xHandle }} disabled={!canWorkspace} />
           </Card>
 
           <Card id="profile" className="scroll-mt-4">
