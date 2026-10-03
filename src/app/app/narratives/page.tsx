@@ -1,84 +1,120 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
+import { Radar, TrendingUp } from "lucide-react";
 import { requireProject } from "@/server/auth/current";
 import { schema as s } from "@/server/db/client";
-import { PageHeader, Panel, Table, ModeBadge, Badge, Velocity, Empty } from "@/components/ui";
-import { Sparkline } from "@/components/charts";
 import { DAY_MS } from "@/lib/time";
+import { Badge, Card, CardHeader, EmptyState, LinkButton, ModeBadge, PageHeader, Velocity, type Tone } from "@/components/ui";
+import { DataTable } from "@/components/ui/data-table";
+import { Sparkline } from "@/components/charts";
 
-const STATUS_TONE: Record<string, "good" | "info" | "warn" | "bad" | "neutral" | "accent"> = { EMERGING: "accent", ACCELERATING: "good", PEAKING: "warn", DECLINING: "bad", CONTROVERSIAL: "warn", UNDEREXPLORED: "info", STABLE: "neutral" };
+const STATUS_TONE: Record<string, Tone> = { EMERGING: "accent", ACCELERATING: "good", PEAKING: "warn", DECLINING: "bad", CONTROVERSIAL: "warn", UNDEREXPLORED: "info", STABLE: "neutral" };
+const title = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
 
 export default async function Narratives() {
   const { project, db } = await requireProject();
-  const rows = await db.select().from(s.narratives).where(eq(s.narratives.projectId, project.id)).orderBy(desc(s.narratives.relevance), desc(s.narratives.volume7d));
-  const links = await db.select({ n: s.narrativePosts.narrativeId, at: s.socialPosts.publishedAt }).from(s.narrativePosts).innerJoin(s.socialPosts, eq(s.narrativePosts.postId, s.socialPosts.id)).where(eq(s.socialPosts.projectId, project.id));
+  const [rows, links] = await Promise.all([
+    db.select().from(s.narratives).where(eq(s.narratives.projectId, project.id)).orderBy(desc(s.narratives.relevance), desc(s.narratives.volume7d)),
+    db.select({ n: s.narrativePosts.narrativeId, at: s.socialPosts.publishedAt }).from(s.narrativePosts).innerJoin(s.socialPosts, eq(s.narrativePosts.postId, s.socialPosts.id)).where(eq(s.socialPosts.projectId, project.id)),
+  ]);
   const series = (id: string) => Array.from({ length: 14 }, (_, i) => links.filter((l) => l.n === id && Math.floor((Date.now() - l.at.getTime()) / DAY_MS) === 13 - i).length);
-  const top = rows.filter((r) => r.relevance >= 40).slice(0, 5);
+  const top = rows.filter((r) => r.relevance >= 40).slice(0, 6);
+
   return (
-    <div>
-      <PageHeader title="Narratives" sub="Public conversation clustered into themes. Week-over-week volume decides the lifecycle; relevance is overlap with the product's own vocabulary." />
+    <div className="space-y-4">
+      <PageHeader
+        title="Narratives"
+        description="Public conversation clustered into themes. Week-over-week volume decides the lifecycle; relevance is overlap with the product's own vocabulary."
+        meta={
+          <>
+            <ModeBadge mode={project.dataMode} />
+            <span>
+              <span className="num text-ink-2">{rows.length}</span> narratives tracked
+            </span>
+          </>
+        }
+      />
+
       {top.length > 0 && (
-        <Panel title="Your market this week" className="mb-3">
-          <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
+        <Card className="overflow-hidden">
+          <CardHeader title="Your market this week" description="Most relevant narratives, by overlap with your product vocabulary" icon={<TrendingUp />} />
+          <div className="-mb-px -mr-px grid sm:grid-cols-2 lg:grid-cols-3">
             {top.map((n) => (
-              <Link key={n.id} href={`/app/narratives/${n.id}`} className="flex items-center justify-between border-b border-line py-1.5">
-                <span className="text-[13.5px] text-ink">{n.label}</span>
-                <Velocity pct={n.velocityPct} />
+              <Link key={n.id} href={`/app/narratives/${n.id}`} className="group flex flex-col gap-2 border-b border-line px-4 py-3 transition-colors hover:bg-surface-2 border-r">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] font-medium text-ink">{n.label}</span>
+                  <Velocity pct={n.velocityPct} />
+                </div>
+                <div className="flex items-end justify-between gap-3">
+                  <span className="flex items-center gap-2 text-[11.5px] text-ink-3">
+                    <Badge tone={STATUS_TONE[n.status]}>{title(n.status)}</Badge>
+                    <span>
+                      <span className="num">{n.volume7d}</span> posts · rel <span className="num">{n.relevance}</span>
+                    </span>
+                  </span>
+                  <Sparkline values={series(n.id)} width={84} height={20} label={n.label} />
+                </div>
               </Link>
             ))}
           </div>
-        </Panel>
+        </Card>
       )}
-      <Panel pad={false}>
-        {rows.length ? (
-          <Table>
-            <thead>
-              <tr>
-                <th>Narrative</th>
-                <th>Status</th>
-                <th className="text-right">7d</th>
-                <th className="text-right">Prior 7d</th>
-                <th className="text-right">Velocity</th>
-                <th className="text-right">Relevance</th>
-                <th>14 days</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((n) => (
-                <tr key={n.id}>
-                  <td>
-                    <Link href={`/app/narratives/${n.id}`} className="font-medium hover:underline">
-                      {n.label}
-                    </Link>
-                    <div className="text-[11px] text-ink-3">{n.terms.slice(0, 5).join(" · ")}</div>
-                  </td>
-                  <td>
-                    <Badge tone={STATUS_TONE[n.status]}>{n.status}</Badge>
-                    <div className="mt-0.5 text-[10.5px] text-ink-3">{n.summary}</div>
-                  </td>
-                  <td className="num text-right">{n.volume7d}</td>
-                  <td className="num text-right text-ink-3">{n.volumePrev7d}</td>
-                  <td className="text-right">
-                    <Velocity pct={n.velocityPct} />
-                  </td>
-                  <td className="num text-right">{n.relevance}</td>
-                  <td>
-                    <Sparkline values={series(n.id)} width={110} height={22} label={n.label} />
-                  </td>
-                  <td className="text-right">
-                    <ModeBadge mode={n.dataMode} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        ) : (
-          <div className="p-4">
-            <Empty title="No narratives yet">Narratives appear once enough relevant public posts are collected.</Empty>
-          </div>
-        )}
-      </Panel>
+
+      {rows.length ? (
+        <Card>
+          <DataTable
+            searchable
+            defaultSort={{ key: "relevance", dir: "desc" }}
+            columns={[
+              { key: "label", label: "Narrative", sortable: true },
+              { key: "status", label: "Lifecycle", sortable: true },
+              { key: "v7", label: "7d", align: "right", sortable: true },
+              { key: "prev", label: "Prior 7d", align: "right", sortable: true },
+              { key: "velocity", label: "Velocity", align: "right", sortable: true },
+              { key: "relevance", label: "Relevance", align: "right", sortable: true },
+              { key: "trend", label: "14 days" },
+              { key: "mode", label: "", align: "right" },
+            ]}
+            rows={rows.map((n) => ({
+              id: n.id,
+              href: `/app/narratives/${n.id}`,
+              cells: {
+                label: (
+                  <span className="block min-w-[200px]">
+                    {n.label}
+                    <span className="mt-0.5 block truncate text-[11px] font-normal text-ink-3">{n.terms.slice(0, 5).join(" · ")}</span>
+                  </span>
+                ),
+                status: (
+                  <span className="block max-w-[260px]">
+                    <Badge tone={STATUS_TONE[n.status]}>{title(n.status)}</Badge>
+                    {n.summary && <span className="mt-1 line-clamp-1 block text-[11px] text-ink-3">{n.summary}</span>}
+                  </span>
+                ),
+                v7: <span className="num">{n.volume7d}</span>,
+                prev: <span className="num text-ink-3">{n.volumePrev7d}</span>,
+                velocity: <Velocity pct={n.velocityPct} />,
+                relevance: <span className="num">{n.relevance}</span>,
+                trend: <Sparkline values={series(n.id)} width={110} height={22} label={n.label} />,
+                mode: <ModeBadge mode={n.dataMode} />,
+              },
+              sort: { label: n.label, status: n.status, v7: n.volume7d, prev: n.volumePrev7d, velocity: n.velocityPct, relevance: n.relevance },
+              search: `${n.label} ${n.status} ${n.terms.join(" ")} ${n.summary ?? ""}`,
+            }))}
+          />
+        </Card>
+      ) : (
+        <EmptyState
+          icon={<TrendingUp />}
+          title="No narratives yet"
+          description="Narratives form once enough relevant public posts cluster around a theme. Connect sources and run a scan to collect them."
+          action={
+            <LinkButton href="/app/runs" variant="primary" icon={<Radar />}>
+              Run a scan
+            </LinkButton>
+          }
+        />
+      )}
     </div>
   );
 }

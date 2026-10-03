@@ -1,33 +1,76 @@
 "use client";
-import { useActionState, useState } from "react";
-import { loginAction, signupAction } from "@/server/actions";
-import { Btn } from "@/components/ui";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
+import { ArrowRight, PlayCircle } from "lucide-react";
+import { enterDemoAction, loginAction, signupAction } from "@/server/actions/auth";
+import { Button, Callout, Field, Input } from "@/components/ui";
 
-const input = "h-8 w-full rounded border border-line bg-bg px-2.5 text-[13px] text-ink outline-none placeholder:text-ink-4 focus:border-s1";
-
-export function AuthForms() {
-  const [mode, setMode] = useState<"login" | "signup">("login");
-  const [loginState, login, loginPending] = useActionState(loginAction, null);
-  const [signupState, signup, signupPending] = useActionState(signupAction, null);
-  const state = mode === "login" ? loginState : signupState;
+function Hidden({ invite, next }: { invite?: string; next?: string }) {
   return (
-    <div>
-      <div className="mb-3 flex gap-3 text-[12px]">
-        {(["login", "signup"] as const).map((m) => (
-          <button key={m} onClick={() => setMode(m)} className={m === mode ? "text-ink" : "text-ink-3 hover:text-ink-2"}>
-            {m === "login" ? "Sign in" : "Create account"}
-          </button>
-        ))}
-      </div>
-      <form action={mode === "login" ? login : signup} className="space-y-2">
-        {mode === "signup" && <input name="name" placeholder="Name" className={input} autoComplete="name" />}
-        <input name="email" type="email" required placeholder="you@company.com" className={input} autoComplete="email" />
-        <input name="password" type="password" required minLength={8} placeholder="Password (8+ chars)" className={input} autoComplete={mode === "login" ? "current-password" : "new-password"} />
-        {state && !state.ok && <div className="text-[12px] text-critical">{state.error}</div>}
-        <Btn variant="default" className="w-full justify-center" disabled={loginPending || signupPending}>
-          {mode === "login" ? (loginPending ? "Signing in…" : "Sign in") : signupPending ? "Creating…" : "Create account"}
-        </Btn>
-      </form>
-    </div>
+    <>
+      {invite && <input type="hidden" name="invite" value={invite} />}
+      {next && <input type="hidden" name="next" value={next} />}
+    </>
+  );
+}
+
+export function LoginForm({ invite, next, email }: { invite?: string; next?: string; email?: string }) {
+  const [state, action, pending] = useActionState(loginAction, null);
+  return (
+    <form action={action} className="space-y-3.5">
+      <Hidden invite={invite} next={next} />
+      <Field label="Email" htmlFor="login-email">
+        <Input id="login-email" name="email" type="email" required autoComplete="email" defaultValue={email} placeholder="you@company.com" className="h-9" autoFocus />
+      </Field>
+      <Field label="Password" htmlFor="login-password">
+        <Input id="login-password" name="password" type="password" required minLength={8} autoComplete="current-password" placeholder="••••••••" className="h-9" />
+      </Field>
+      {state && !state.ok && <Callout tone="danger">{state.error}</Callout>}
+      <Button type="submit" variant="primary" size="lg" className="w-full" loading={pending}>
+        {invite ? "Sign in & accept invite" : "Sign in"}
+        {!pending && <ArrowRight />}
+      </Button>
+    </form>
+  );
+}
+
+export function SignupForm({ invite, email }: { invite?: string; email?: string }) {
+  const [state, action, pending] = useActionState(signupAction, null);
+  return (
+    <form action={action} className="space-y-3.5">
+      <Hidden invite={invite} />
+      <Field label="Name" htmlFor="signup-name">
+        <Input id="signup-name" name="name" autoComplete="name" placeholder="Ada Lovelace" className="h-9" autoFocus />
+      </Field>
+      <Field label="Work email" htmlFor="signup-email" hint={invite && email ? "Must match the address the invite was sent to." : undefined}>
+        <Input id="signup-email" name="email" type="email" required autoComplete="email" defaultValue={email} readOnly={!!(invite && email)} placeholder="you@company.com" className="h-9" />
+      </Field>
+      <Field label="Password" htmlFor="signup-password" hint="At least 8 characters.">
+        <Input id="signup-password" name="password" type="password" required minLength={8} autoComplete="new-password" placeholder="••••••••" className="h-9" />
+      </Field>
+      {state && !state.ok && <Callout tone="danger">{state.error}</Callout>}
+      <Button type="submit" variant="primary" size="lg" className="w-full" loading={pending}>
+        {invite ? "Create account & join" : "Create account"}
+        {!pending && <ArrowRight />}
+      </Button>
+    </form>
+  );
+}
+
+function DemoSubmit() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" variant="secondary" size="lg" className="w-full" loading={pending} icon={<PlayCircle />}>
+      {pending ? "Preparing a private demo…" : "Explore the live demo"}
+    </Button>
+  );
+}
+
+/** A private, seeded demo workspace — no keys or account needed. */
+export function DemoButton() {
+  return (
+    <form action={enterDemoAction}>
+      <DemoSubmit />
+    </form>
   );
 }

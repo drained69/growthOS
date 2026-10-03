@@ -1,9 +1,10 @@
-import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
+import { Radar, Users } from "lucide-react";
 import { requireProject } from "@/server/auth/current";
 import { schema as s } from "@/server/db/client";
-import { PageHeader, Panel, Table, ModeBadge, Badge, Empty } from "@/components/ui";
 import type { ScoreComponent } from "@/server/domain/scoring/intent";
+import { Avatar, Card, EmptyState, LinkButton, ModeBadge, PageHeader, Stat, StatStrip, StatusBadge } from "@/components/ui";
+import { DataTable } from "@/components/ui/data-table";
 
 const COLS: [string, string][] = [
   ["audienceFit", "Audience"],
@@ -22,61 +23,86 @@ function cell(v?: number) {
   return <span className={`num ${tone}`}>{v}</span>;
 }
 
-export default async function Kols() {
+export default async function Creators() {
   const { project, db } = await requireProject();
   const rows = await db.select().from(s.kols).where(eq(s.kols.projectId, project.id)).orderBy(desc(s.kols.overallScore));
+  const strong = rows.filter((k) => k.overallScore >= 70).length;
+  const engaged = rows.filter((k) => k.status !== "candidate" && k.status !== "dismissed").length;
+  const withPayout = rows.filter((k) => k.payoutAddress).length;
+
   return (
-    <div>
-      <PageHeader title="KOL intelligence" sub="Ranked by relevance, authority, recency, discussion quality and authenticity. Follower count is shown, but only enters scoring log-damped (max +10 on authority)." />
-      <Panel pad={false}>
-        {rows.length ? (
-          <Table>
-            <thead>
-              <tr>
-                <th>Creator</th>
-                <th className="text-right">Followers</th>
-                {COLS.map(([, l]) => (
-                  <th key={l} className="text-right">
-                    {l}
-                  </th>
-                ))}
-                <th className="text-right">Overall</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((k) => {
-                const m = k.metrics as Record<string, ScoreComponent>;
-                return (
-                  <tr key={k.id}>
-                    <td>
-                      <Link href={`/app/kols/${k.id}`} className="font-medium hover:underline">
-                        @{k.handle}
-                      </Link>
-                      <div className="text-[11px] text-ink-3">{k.provider}</div>
-                    </td>
-                    <td className="num text-right text-ink-3">{k.followers ? k.followers.toLocaleString() : "—"}</td>
-                    {COLS.map(([key]) => (
-                      <td key={key} className="text-right">
-                        {cell(m[key]?.score)}
-                      </td>
-                    ))}
-                    <td className="num text-right text-[14px]">{k.overallScore}</td>
-                    <td className="text-right">
-                      {k.status !== "candidate" && <Badge className="mr-1">{k.status}</Badge>}
+    <div className="space-y-4">
+      <PageHeader
+        title="Creators"
+        description="Ranked by relevance, authority, recency, discussion quality and authenticity. Follower count is shown, but only enters scoring log-damped (max +10 on authority)."
+        meta={<ModeBadge mode={project.dataMode} />}
+      />
+
+      {rows.length > 0 && (
+        <StatStrip className="grid-cols-2 sm:grid-cols-4">
+          <Stat label="Creators ranked" value={rows.length} />
+          <Stat label="Strong fit" value={strong} sub="overall ≥ 70" tone={strong ? "good" : undefined} />
+          <Stat label="Shortlisted / engaged" value={engaged} />
+          <Stat label="Payout address set" value={withPayout} sub="ready to pay in USDC" />
+        </StatStrip>
+      )}
+
+      {rows.length ? (
+        <Card>
+          <DataTable
+            searchable
+            defaultSort={{ key: "overall", dir: "desc" }}
+            columns={[
+              { key: "handle", label: "Creator", sortable: true },
+              { key: "followers", label: "Followers", align: "right", sortable: true },
+              ...COLS.map(([key, label]) => ({ key, label, align: "right" as const, sortable: true })),
+              { key: "overall", label: "Overall", align: "right", sortable: true },
+              { key: "status", label: "", align: "right" },
+            ]}
+            rows={rows.map((k) => {
+              const m = k.metrics as Record<string, ScoreComponent>;
+              return {
+                id: k.id,
+                href: `/app/kols/${k.id}`,
+                cells: {
+                  handle: (
+                    <span className="flex items-center gap-2.5">
+                      <Avatar name={k.handle} size={22} />
+                      <span className="min-w-0">
+                        <span className="block">@{k.handle}</span>
+                        <span className="block text-[11px] font-normal text-ink-3">{k.provider}</span>
+                      </span>
+                    </span>
+                  ),
+                  followers: <span className="num text-ink-3">{k.followers ? k.followers.toLocaleString() : "—"}</span>,
+                  ...Object.fromEntries(COLS.map(([key]) => [key, cell(m[key]?.score)])),
+                  overall: <span className="num text-[13.5px] font-medium text-ink">{k.overallScore}</span>,
+                  status: (
+                    <span className="inline-flex items-center gap-1.5">
+                      {k.status !== "candidate" && <StatusBadge status={k.status} />}
                       <ModeBadge mode={k.dataMode} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </Table>
-        ) : (
-          <div className="p-4">
-            <Empty title="No relevant voices yet" />
-          </div>
-        )}
-      </Panel>
+                    </span>
+                  ),
+                },
+                sort: { handle: k.handle, followers: k.followers ?? null, overall: k.overallScore, ...Object.fromEntries(COLS.map(([key]) => [key, m[key]?.score ?? null])) },
+                search: `${k.handle} ${k.provider} ${k.status}`,
+              };
+            })}
+            empty={<p className="text-center text-[12.5px] text-ink-3">No creators match that filter.</p>}
+          />
+        </Card>
+      ) : (
+        <EmptyState
+          icon={<Users />}
+          title="No relevant creators yet"
+          description="Creators are ranked from the authors of relevant public posts. Run a scan and the voices that keep coming up in your narratives appear here."
+          action={
+            <LinkButton href="/app/runs" variant="primary" icon={<Radar />}>
+              Run a scan
+            </LinkButton>
+          }
+        />
+      )}
     </div>
   );
 }

@@ -1,93 +1,142 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
+import { ArrowRight, Clock, FileSearch, FileText, FlaskConical, Gauge, UserRound } from "lucide-react";
 import { requireProject } from "@/server/auth/current";
+import { can } from "@/server/auth/access";
 import { schema as s } from "@/server/db/client";
-import { PageHeader, Panel, ScoreBar, EvidenceItem, ModeBadge, KV, LinkBtn, Badge } from "@/components/ui";
 import type { ScoreComponent } from "@/server/domain/scoring/intent";
 import { KOL_WEIGHTS } from "@/server/domain/scoring/kol";
 import { estimateKolCostMicro } from "@/server/domain/intel/analyze";
 import { fmtUsdc } from "@/lib/money";
+import { Avatar, Badge, Card, CardBody, CardHeader, ExternalLink, KeyValue, LinkButton, ModeBadge, PageHeader, StatusBadge } from "@/components/ui";
+import { EvidenceList } from "@/components/features/intel/evidence";
+import { ScoreBreakdown, WhyNow } from "@/components/features/intel/score-breakdown";
+import { PayoutForm } from "@/components/features/creators/payout-form";
 
 const LABEL: Record<string, string> = { audienceFit: "Audience fit", topicAuthority: "Topic authority", recentRelevance: "Recent relevance", engagementQuality: "Engagement quality", narrativeFit: "Narrative fit", historicalProductFit: "Historical product fit", authenticity: "Authenticity signals", campaignFit: "Estimated campaign fit" };
 
-export default async function Kol({ params }: { params: Promise<{ id: string }> }) {
+export default async function Creator({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { project, db } = await requireProject();
+  const { project, role, db } = await requireProject();
   const [k] = await db.select().from(s.kols).where(and(eq(s.kols.id, id), eq(s.kols.projectId, project.id)));
   if (!k) notFound();
   const m = k.metrics as Record<string, ScoreComponent>;
-  const ev = await db.select().from(s.evidence).where(eq(s.evidence.kolId, k.id)).orderBy(desc(s.evidence.observedAt));
-  const camps = await db.select({ c: s.campaigns, x: s.experiments }).from(s.campaigns).innerJoin(s.experiments, eq(s.campaigns.experimentId, s.experiments.id)).where(eq(s.campaigns.kolId, k.id));
-  const [opp] = await db.select().from(s.opportunities).where(and(eq(s.opportunities.projectId, project.id), eq(s.opportunities.subjectKey, `kol:${k.id}`)));
+  const [ev, camps, [opp]] = await Promise.all([
+    db.select().from(s.evidence).where(eq(s.evidence.kolId, k.id)).orderBy(desc(s.evidence.observedAt)),
+    db.select({ c: s.campaigns, x: s.experiments }).from(s.campaigns).innerJoin(s.experiments, eq(s.campaigns.experimentId, s.experiments.id)).where(and(eq(s.campaigns.kolId, k.id), eq(s.experiments.projectId, project.id))),
+    db.select().from(s.opportunities).where(and(eq(s.opportunities.projectId, project.id), eq(s.opportunities.subjectKey, `kol:${k.id}`))),
+  ]);
+  const weights = KOL_WEIGHTS as Record<string, number>;
+  const components = Object.keys(LABEL)
+    .filter((key) => m[key])
+    .map((key) => ({ key, label: LABEL[key], weight: weights[key], score: m[key].score, reasons: m[key].reasons }));
+  const latest = camps.at(-1);
+  const briefHref = `/app/kols/${k.id}/brief${latest ? `?experiment=${latest.x.id}` : ""}`;
+  const external = !!k.url?.startsWith("http");
+
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
-        crumbs={[{ label: "KOLs", href: "/app/kols" }]}
+        crumbs={[{ label: "Creators", href: "/app/kols" }]}
         title={
-          <span className="flex items-center gap-2">
-            @{k.handle} <span className="text-[13px] font-normal text-ink-3">{k.provider}</span> <ModeBadge mode={k.dataMode} />
-          </span>
-        }
-        sub={k.recommendedAngle ? `Recommended angle: ${k.recommendedAngle}` : undefined}
-        right={
           <>
-            {opp && <LinkBtn href={`/app/opportunities/${opp.id}`}>Opportunity #{opp.number}</LinkBtn>}
-            <LinkBtn href={`/app/kols/${k.id}/brief${camps[0] ? `?experiment=${camps.at(-1)!.x.id}` : ""}`} variant="primary">
-              Creator brief →
-            </LinkBtn>
+            <Avatar name={k.handle} size={26} />@{k.handle}
+            <span className="text-[13px] font-normal text-ink-3">{k.provider}</span>
+            {k.status !== "candidate" && <StatusBadge status={k.status} />}
+          </>
+        }
+        description={k.recommendedAngle ? `Recommended angle: ${k.recommendedAngle}` : undefined}
+        meta={
+          <>
+            <ModeBadge mode={k.dataMode} />
+            <span>
+              <span className="num text-ink-2">{k.followers?.toLocaleString() ?? "—"}</span> followers
+            </span>
+            <span className="text-ink-4">·</span>
+            <span>
+              score <span className="num text-ink-2">{k.overallScore}</span>
+            </span>
+          </>
+        }
+        actions={
+          <>
+            {opp && (
+              <LinkButton href={`/app/opportunities/${opp.id}`} icon={<ArrowRight />}>
+                Opportunity #{opp.number}
+              </LinkButton>
+            )}
+            <LinkButton href={briefHref} variant="primary" icon={<FileText />}>
+              Creator brief
+            </LinkButton>
           </>
         }
       />
-      <div className="grid gap-3 lg:grid-cols-[1fr_400px]">
-        <div className="space-y-3">
-          <Panel title="Why now">
-            <ul className="space-y-1.5 text-[12.5px] text-ink-2">
-              {k.whyNow.map((w) => (
-                <li key={w}>• {w}</li>
-              ))}
-            </ul>
-          </Panel>
-          <Panel title="Evidence">
-            <ul className="space-y-2">
-              {ev.map((e) => (
-                <EvidenceItem key={e.id} e={e} />
-              ))}
-            </ul>
-          </Panel>
-          {camps.length > 0 && (
-            <Panel title="Campaign history">
-              {camps.map(({ c, x }) => (
-                <KV key={c.id} k={<a href={`/app/experiments/${x.id}`} className="hover:underline">EXP #{x.number} — {x.title}</a>} v={<Badge>{x.status}</Badge>} />
-              ))}
-            </Panel>
-          )}
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
+        <div className="min-w-0 space-y-4">
+          <Card>
+            <CardHeader title="Why now" icon={<Clock />} />
+            <CardBody>
+              <WhyNow items={k.whyNow} />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Evidence" description="Posts and signals that put this creator on the list." icon={<FileSearch />} action={<Badge>{ev.length}</Badge>} />
+            <CardBody>
+              <EvidenceList items={ev} empty="No evidence attached yet. It is added as scans attribute relevant posts to this creator." />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Campaign history" icon={<FlaskConical />} />
+            {camps.length ? (
+              <ul className="divide-y divide-line">
+                {camps.map(({ c, x }) => (
+                  <li key={c.id}>
+                    <Link href={`/app/experiments/${x.id}`} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[12.5px] transition-colors hover:bg-surface-2">
+                      <span className="min-w-0 truncate">
+                        <span className="num mr-2 text-ink-4">EXP #{x.number}</span>
+                        {x.title}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <ModeBadge mode={x.dataMode} />
+                        <StatusBadge status={x.status} />
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <CardBody className="text-[12.5px] text-ink-3">No campaigns yet. Create an experiment from this creator’s opportunity to brief and pay them.</CardBody>
+            )}
+          </Card>
         </div>
-        <div className="space-y-3">
-          <Panel title="KOL score" right={<span className="num text-[18px] text-ink">{k.overallScore}</span>}>
-            <div className="space-y-3">
-              {Object.keys(LABEL).map((key) => {
-                const sc = m[key];
-                if (!sc) return null;
-                const w = (KOL_WEIGHTS as Record<string, number>)[key];
-                return (
-                  <div key={key}>
-                    <ScoreBar label={`${LABEL[key]}${w ? ` ×${w}` : ""}`} value={sc.score} />
-                    <ul className="mt-1 space-y-0.5 text-[11px] text-ink-3">
-                      {sc.reasons.map((r) => (
-                        <li key={r}>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
-                );
-              })}
-            </div>
-          </Panel>
-          <Panel title="Profile">
-            <KV k="Followers" v={<span className="num">{k.followers?.toLocaleString() ?? "unknown"}</span>} />
-            <KV k="Estimated campaign cost" v={<span className="num">{fmtUsdc(estimateKolCostMicro(k.followers))} (estimate)</span>} />
-            <KV k="Payout address" v={<span className="num text-[11px]">{k.payoutAddress ?? "not set — founder provides"}</span>} />
-            {k.url && <KV k="Profile" v={<a href={k.url} className="text-s1 hover:underline">{k.url.startsWith("http") ? "open ↗" : "demo source"}</a>} />}
-          </Panel>
+
+        <div className="space-y-4">
+          <Card>
+            <CardHeader title="Creator score" icon={<Gauge />} action={<span className="num text-[20px] font-medium tracking-[-0.03em] text-ink">{k.overallScore}</span>} />
+            <CardBody>
+              {components.length ? <ScoreBreakdown components={components} footnote="Weighted, deterministic components. Followers only enter log-damped." /> : <p className="text-[12.5px] text-ink-3">No component scores recorded yet.</p>}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Profile & payout" icon={<UserRound />} />
+            <CardBody className="space-y-4">
+              <KeyValue
+                items={[
+                  { k: "Followers", v: <span className="num">{k.followers?.toLocaleString() ?? "unknown"}</span> },
+                  { k: "Estimated campaign cost", v: <span className="num">{fmtUsdc(estimateKolCostMicro(k.followers))} <span className="text-ink-3">est.</span></span> },
+                  ...(k.url ? [{ k: "Profile", v: external ? <ExternalLink href={k.url}>Open</ExternalLink> : <span className="text-ink-3">Demo source</span> }] : []),
+                ]}
+              />
+              <div className="border-t border-line pt-4">
+                <PayoutForm kolId={k.id} current={k.payoutAddress} disabled={!can(role, "manage_wallet")} />
+              </div>
+            </CardBody>
+          </Card>
         </div>
       </div>
     </div>

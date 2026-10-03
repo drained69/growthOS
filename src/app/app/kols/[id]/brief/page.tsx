@@ -1,16 +1,32 @@
+import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { and, eq } from "drizzle-orm";
+import { ArrowUpRight, FileText, PenLine } from "lucide-react";
 import { requireProject } from "@/server/auth/current";
 import { schema as s } from "@/server/db/client";
 import { generateKolBrief, type KolBrief } from "@/server/domain/growth/kol-brief";
-import { PageHeader, Panel, Badge, ModeBadge } from "@/components/ui";
+import { Badge, Callout, Card, CardBody, CardHeader, ModeBadge, PageHeader } from "@/components/ui";
+import { CopyButton, CopyField } from "@/components/ui/copy";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="border-b border-line py-3 last:border-b-0">
-      <div className="label mb-1.5">{title}</div>
-      <div className="text-[13px] leading-relaxed text-ink">{children}</div>
+    <div className="grid gap-1.5 border-b border-line px-4 py-3.5 last:border-b-0 sm:grid-cols-[160px_1fr] sm:gap-4">
+      <div className="label pt-0.5">{title}</div>
+      <div className="min-w-0 text-[13px] leading-relaxed text-ink">{children}</div>
     </div>
+  );
+}
+
+function Bullets({ items }: { items: string[] }) {
+  return (
+    <ul className="space-y-1">
+      {items.map((x) => (
+        <li key={x} className="flex gap-2">
+          <span className="mt-[8px] size-1 shrink-0 rounded-full bg-ink-4" />
+          <span>{x}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -23,64 +39,102 @@ export default async function Brief({ params, searchParams }: { params: Promise<
   let exp = experiment ? (await db.select().from(s.experiments).where(and(eq(s.experiments.id, experiment), eq(s.experiments.projectId, project.id))))[0] : undefined;
   const [camp] = exp ? await db.select().from(s.campaigns).where(eq(s.campaigns.experimentId, exp.id)) : [];
   if (exp && camp?.kolId !== k.id) exp = undefined;
-  const b: KolBrief = camp?.brief && camp.kolId === k.id ? (camp.brief as unknown as KolBrief) : await generateKolBrief(db, k.id, exp?.id);
+  const saved = !!(camp?.brief && camp.kolId === k.id);
+  const b: KolBrief = saved ? (camp!.brief as unknown as KolBrief) : await generateKolBrief(db, k.id, exp?.id);
+
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
-        crumbs={[{ label: "KOLs", href: "/app/kols" }, { label: `@${k.handle}`, href: `/app/kols/${k.id}` }]}
-        title={<span className="flex items-center gap-2">Campaign brief — {b.creator} <ModeBadge mode={k.dataMode} /></span>}
-        sub="A working document for the creator. Every claim carries a source. Not promotional copy."
+        crumbs={[
+          { label: "Creators", href: "/app/kols" },
+          { label: `@${k.handle}`, href: `/app/kols/${k.id}` },
+        ]}
+        title={<>Campaign brief — {b.creator}</>}
+        description="A working document for the creator. Every claim carries a source. Not promotional copy."
+        meta={
+          <>
+            <ModeBadge mode={k.dataMode} />
+            {exp ? (
+              <span>
+                For experiment <span className="num text-ink-2">#{exp.number}</span> · {exp.title}
+              </span>
+            ) : (
+              <span>Not yet tied to an experiment</span>
+            )}
+            <span className="text-ink-4">·</span>
+            <span>{saved ? "Saved with campaign" : "Generated now"}</span>
+          </>
+        }
       />
-      <div className="grid gap-3 lg:grid-cols-[1fr_420px]">
-        <Panel>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
+        <Card className="min-w-0">
+          <CardHeader title="Brief" icon={<FileText />} />
           <Section title="Objective">{b.objective}</Section>
           <Section title="Why this creator">
-            <ul className="space-y-0.5">{b.whyThisCreator.map((x) => <li key={x}>• {x}</li>)}</ul>
+            <Bullets items={b.whyThisCreator} />
           </Section>
           <Section title="Why now">
-            <ul className="space-y-0.5">{b.whyNow.map((x) => <li key={x}>• {x}</li>)}</ul>
+            <Bullets items={b.whyNow} />
           </Section>
           <Section title="Audience">{b.audience}</Section>
           <Section title="Current narrative">{b.currentNarrative}</Section>
           <Section title="Core idea">{b.coreIdea}</Section>
           <Section title="Demo worth showing">{b.demoWorthShowing}</Section>
           <Section title="Suggested angles">
-            <ol className="list-decimal space-y-0.5 pl-4">{b.suggestedAngles.map((x) => <li key={x}>{x}</li>)}</ol>
+            <ol className="list-decimal space-y-1 pl-4 marker:text-ink-4">
+              {b.suggestedAngles.map((x) => (
+                <li key={x}>{x}</li>
+              ))}
+            </ol>
           </Section>
           <Section title="Claims with evidence">
             <ul className="space-y-1.5">
               {b.claimsWithEvidence.map((c) => (
                 <li key={c.claim + c.source}>
                   {c.claim}
-                  <a href={c.source} className="ml-1.5 text-[11px] text-s1 hover:underline">[source]</a>
+                  <a href={c.source} target={c.source.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="ml-1.5 inline-flex items-center gap-0.5 text-[11.5px] text-s1 hover:underline">
+                    source{c.source.startsWith("http") && <ArrowUpRight className="size-3" />}
+                  </a>
                 </li>
               ))}
             </ul>
           </Section>
           <Section title="Things to avoid">
-            <ul className="space-y-0.5">{b.thingsToAvoid.map((x) => <li key={x}>• {x}</li>)}</ul>
+            <Bullets items={b.thingsToAvoid} />
           </Section>
           <Section title="CTA">{b.cta}</Section>
           {b.trackingLink && (
             <Section title="Tracking link">
-              <code className="num break-all text-[11.5px] text-s1">{b.trackingLink}</code>
+              <CopyField value={b.trackingLink} />
             </Section>
           )}
           <Section title="Compensation">{b.compensation}</Section>
-          <Section title="Creator freedom"><Badge tone="good">{b.creatorFreedom}</Badge></Section>
-        </Panel>
-        <div className="space-y-3">
-          <Panel title="Optional drafts — suggestions only" right={<Badge tone={b.draftsGeneratedBy === "claude" ? "info" : "neutral"}>{b.draftsGeneratedBy}</Badge>}>
-            <p className="mb-3 rounded border border-warning/30 bg-warning/5 px-2.5 py-2 text-[11.5px] text-warning">{b.disclosure}</p>
-            <div className="space-y-3">
-              {b.drafts.map((d) => (
-                <div key={d.label}>
-                  <div className="label mb-1">{d.label}</div>
-                  <pre className="whitespace-pre-wrap rounded border border-line bg-bg px-2.5 py-2 font-sans text-[12px] leading-relaxed text-ink-2">{d.body}</pre>
-                </div>
-              ))}
-            </div>
-          </Panel>
+          <Section title="Creator freedom">
+            <Badge tone="good">{b.creatorFreedom}</Badge>
+          </Section>
+        </Card>
+
+        <div className="space-y-4">
+          <Card>
+            <CardHeader title="Optional drafts" description="Suggestions only — the creator writes in their own voice." icon={<PenLine />} action={<Badge tone={b.draftsGeneratedBy === "claude" ? "info" : "neutral"}>{b.draftsGeneratedBy}</Badge>} />
+            <CardBody className="space-y-4">
+              <Callout tone="warn">{b.disclosure}</Callout>
+              {b.drafts.length ? (
+                b.drafts.map((d) => (
+                  <div key={d.label}>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="label">{d.label}</span>
+                      <CopyButton value={d.body} />
+                    </div>
+                    <pre className="whitespace-pre-wrap rounded-[8px] border border-line bg-bg px-3 py-2.5 font-sans text-[12.5px] leading-relaxed text-ink-2">{d.body}</pre>
+                  </div>
+                ))
+              ) : (
+                <p className="text-[12.5px] text-ink-3">No drafts were generated for this brief.</p>
+              )}
+            </CardBody>
+          </Card>
         </div>
       </div>
     </div>
