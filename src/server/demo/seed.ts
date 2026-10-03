@@ -107,9 +107,12 @@ export async function ensureDemoUser(db: DB): Promise<string> {
   return n.id;
 }
 
-/** Creates (or recreates) the demo project. Returns its id. */
-export async function seedDemo(db: DB, opts: { reset?: boolean } = {}): Promise<string> {
-  const userId = await ensureDemoUser(db);
+/**
+ * Creates a demo workspace owned by `ownerId` (default: the shared demo account used by scripts).
+ * With `reset`, the owner's existing demo workspaces are removed first. Returns the new project id.
+ */
+export async function seedDemo(db: DB, opts: { reset?: boolean; ownerId?: string } = {}): Promise<string> {
+  const userId = opts.ownerId ?? (await ensureDemoUser(db));
   const existing = await db.select().from(s.projects).where(and(eq(s.projects.ownerId, userId), eq(s.projects.dataMode, "DEMO")));
   if (existing.length && !opts.reset) return existing[0].id;
   for (const p of existing) await db.delete(s.projects).where(eq(s.projects.id, p.id));
@@ -129,6 +132,7 @@ export async function seedDemo(db: DB, opts: { reset?: boolean } = {}): Promise<
     onboardingStep: 5,
     dataMode: "DEMO",
   });
+  await db.insert(s.memberships).values({ id: newId(), projectId, userId, role: "owner" });
   await db.insert(s.productProfiles).values({ id: newId(), projectId, ...DEMO_PROFILE, crawledSources: [{ url: "https://meterline.example", ok: false, note: "DEMO profile — not crawled" }], generatedBy: "demo" });
   await db.insert(s.icps).values([
     { id: newId(), projectId, tier: "primary", title: "AI agent developers", description: "Teams shipping agents that call paid APIs or move money", companySize: "2–50", segments: ["ai agents", "developers", "agent developers"], signals: ["Asks how agents pay for APIs", "Building with MCP / tool use", "Mentions x402"] },

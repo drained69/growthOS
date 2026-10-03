@@ -1,18 +1,23 @@
+import Link from "next/link";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { ArrowLeftRight, ArrowUpRight, CircleDollarSign, Layers, Lock, PiggyBank, RefreshCw, Send, ShieldCheck, Snowflake, Unlock, Wallet as WalletIcon } from "lucide-react";
 import { requireProject } from "@/server/auth/current";
+import { can } from "@/server/auth/access";
 import { schema as s } from "@/server/db/client";
-import { activeMission, missionSummary, walletSnapshot } from "@/server/queries/views";
-import { walletMode, ARC, addressExplorerUrl } from "@/server/integrations/circle/config";
-import { agentAddress } from "@/server/integrations/circle/signer";
-import { arcUsdcBalanceMicro } from "@/server/integrations/circle/wallet-balance";
-import { gatewayBalance } from "@/server/integrations/circle/gateway";
+import { activeMission, missionSummary } from "@/server/queries/missions";
+import { spentTodayMicro } from "@/server/queries/activity";
+import { getWallet, walletBalances, walletIsLive } from "@/server/integrations/circle/wallets";
+import { ARC, addressExplorerUrl, platformCustody, txExplorerUrl } from "@/server/integrations/circle/config";
 import { unifiedBalance } from "@/server/integrations/circle/appkit";
+import { recentJobs } from "@/server/jobs/queue";
+import { provisionWalletAction, refreshSettlementsAction, toggleFreezeAction } from "@/server/actions/wallet";
 import { fmtUsdc } from "@/lib/money";
-import { DAY_MS } from "@/lib/time";
-import { PageHeader, Panel, Stat, KV, Badge, ExternalLink, StatusDot } from "@/components/ui";
+import { DAY_MS, relTime } from "@/lib/time";
+import { Badge, Callout, Card, CardBody, CardFooter, CardHeader, EmptyState, ExternalLink, KeyValue, ModeBadge, PageHeader, Stat, StatStrip, StatusBadge, StatusDot, Table, shortHash } from "@/components/ui";
+import { CopyField } from "@/components/ui/copy";
 import { ActionButton } from "@/components/features/agent/action-button";
 import { OnrampButton } from "@/components/features/wallet/onramp-button";
-import { toggleFreezeAction, refreshSettlementsAction } from "@/server/actions";
+import { AttachWalletForm, DepositForm } from "@/components/features/wallet/wallet-controls";
 
 async function attempt<T>(fn: () => Promise<T>): Promise<{ v: T | null; err: string | null }> {
   try {
@@ -22,86 +27,342 @@ async function attempt<T>(fn: () => Promise<T>): Promise<{ v: T | null; err: str
   }
 }
 
-export default async function Wallet() {
-  const { project, db, user } = await requireProject();
-  const mode = walletMode();
-  const address = agentAddress();
-  const { wallet, spentToday } = await walletSnapshot(db, project.id);
-  const [policy] = await db.select().from(s.policies).where(eq(s.policies.projectId, project.id));
-  const mission = await activeMission(db, project.id);
+const CUSTODY_LABEL: Record<string, string> = { circle_dcw: "Circle developer-controlled wallet", local_testnet: "Server-side testnet key", unconfigured: "Not configured" };
+
+const Code = ({ children }: { children: React.ReactNode }) => <code className="num rounded-[4px] bg-surface-3 px-1 py-px text-[11.5px] text-ink">{children}</code>;
+
+export default async function WalletPage() {
+  const { project, role, db, user } = await requireProject();
+  const pid = project.id;
+  const demo = project.dataMode === "DEMO";
+  const manage = can(role, "manage_wallet");
+  const custody = platformCustody();
+
+  const [wallet, spentToday, [policy], mission, jobs] = await Promise.all([
+    getWallet(db, pid),
+    spentTodayMicro(db, pid),
+    db.select().from(s.policies).where(eq(s.policies.projectId, pid)),
+    activeMission(db, pid),
+    recentJobs(db, pid, 60),
+  ]);
   const sum = mission ? await missionSummary(db, mission) : null;
-  const [onchain, gw, ub] = address ? await Promise.all([attempt(() => arcUsdcBalanceMicro(address)), attempt(() => gatewayBalance(address)), attempt(() => unifiedBalance(address))]) : [null, null, null];
-  // Earn recommendation input: 7-day run rate of real spend.
-  const [rate] = await db.select({ n: sql<string>`coalesce(sum(${s.transactions.amountMicro}),0)` }).from(s.transactions).where(and(eq(s.transactions.projectId, project.id), inArray(s.transactions.state, ["SUBMITTED", "SETTLED", "SIMULATED"]), gte(s.transactions.createdAt, new Date(Date.now() - 7 * DAY_MS))));
+  const live = walletIsLive(wallet);
+  const address = wallet?.address ?? null;
+  const [balances, ub] = await Promise.all([walletBalances(wallet), address ? attempt(() => unifiedBalance(address)) : Promise.resolve(null)]);
+  const deposits = jobs.filter((j) => j.kind === "gateway_deposit").slice(0, 8);
+
+  // Earn recommendation input: 7-day run rate of spend that actually moved (or would have).
+  const [rate] = await db
+    .select({ n: sql<string>`coalesce(sum(${s.transactions.amountMicro}),0)` })
+    .from(s.transactions)
+    .where(and(eq(s.transactions.projectId, pid), inArray(s.transactions.state, ["SUBMITTED", "SETTLED", "SIMULATED"]), gte(s.transactions.createdAt, new Date(Date.now() - 7 * DAY_MS))));
   const weekly = Number(rate?.n ?? 0);
   const idle = sum ? Math.max(0, sum.available - weekly * 2) : 0;
 
+  const statusBadge = !address ? <Badge tone="warn">Not set up</Badge> : wallet?.frozen ? <Badge tone="bad" dot>Frozen</Badge> : live ? <Badge tone="good" dot>Active</Badge> : <Badge tone="warn">Cannot sign</Badge>;
+
   return (
-    <div>
-      <PageHeader title="Growth wallet" sub="The agent's operating budget. Keys never reach the AI: Circle custodies them (developer-controlled wallet) or, in testnet-key mode, they stay in server env and only sign through the policy engine." />
-      <div className="grid gap-3 lg:grid-cols-[1.3fr_1fr]">
-        <Panel title="Growth wallet" right={wallet?.frozen ? <Badge tone="bad">FROZEN</Badge> : mode === "unconfigured" ? <Badge tone="warn">SIMULATION</Badge> : <Badge tone="good">ACTIVE</Badge>}>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Stat label="Wallet USDC (Arc)" value={onchain?.v != null ? fmtUsdc(onchain.v, { unit: false }) : "—"} sub={onchain?.err ? "RPC unreachable" : address ? "on-chain balance" : "no wallet"} />
-            <Stat label="Gateway balance" value={gw?.v != null ? fmtUsdc(gw.v.availableMicro, { unit: false }) : "—"} sub={gw?.err ? "Gateway API unreachable" : "spendable via x402"} />
-            <Stat label="Spent today" value={fmtUsdc(spentToday, { unit: false })} sub={`limit ${fmtUsdc(policy?.dailySpendMicro, { unit: false })}`} />
-            <Stat label="Mission remaining" value={sum ? fmtUsdc(mission!.budgetMicro - sum.spent, { unit: false }) : "—"} sub={sum ? `${fmtUsdc(sum.available, { unit: false })} uncommitted` : ""} />
-          </div>
-          <div className="mt-4 border-t border-line pt-3">
-            <KV k="Network" v={`${ARC.name} (chain ${ARC.chainId}, Gateway domain ${ARC.gatewayDomain})`} />
-            <KV k="Custody" v={mode === "circle_dcw" ? "Circle developer-controlled wallet" : mode === "local_testnet" ? "Server-side testnet key (never sent to client or LLM)" : "None configured"} />
-            <KV k="Address" v={address ? <ExternalLink href={addressExplorerUrl("Arc_Testnet", address)}>{address.slice(0, 10)}…{address.slice(-6)}</ExternalLink> : "—"} />
-            {wallet?.circleWalletId && <KV k="Circle wallet ID" v={<span className="num text-[11px]">{wallet.circleWalletId}</span>} />}
-            <KV k="USDC contract" v={<span className="num text-[11px]">{ARC.usdc}</span>} />
-            <KV k="GatewayWallet" v={<span className="num text-[11px]">{ARC.gatewayWallet}</span>} />
-          </div>
-          {(onchain?.err || gw?.err) && <p className="mt-2 text-[11px] text-ink-3">Live reads failed: {[onchain?.err, gw?.err].filter(Boolean).join(" · ")}. Nothing is shown in their place.</p>}
-          {mode === "unconfigured" && (
-            <div className="mt-3 rounded border border-warning/30 bg-warning/5 p-3 text-[12px] text-ink-2">
-              <div className="mb-1 font-medium text-warning">No wallet configured — payments run as SIMULATED</div>
-              Set <code className="num">CIRCLE_API_KEY</code>, <code className="num">CIRCLE_ENTITY_SECRET</code> and run <code className="num">npm run wallet:setup</code> to create an Arc Testnet wallet, fund it from faucet.circle.com, then <code className="num">npm run wallet:deposit</code> to deposit into Gateway for x402.
-            </div>
-          )}
-        </Panel>
-        <div className="space-y-3">
-          <Panel title="Unified balance (Gateway, via App Kit)">
-            {ub?.v ? (
-              <>
-                <div className="num text-[22px]">{fmtUsdc(ub.v.totalMicro)}</div>
-                <div className="mt-1 text-[11px] text-ink-3">Available growth capital across chains</div>
-                <div className="mt-2">
-                  {ub.v.byChain.map((c) => (
-                    <KV key={c.chain} k={c.label} v={<span className="num">{fmtUsdc(c.micro)}</span>} />
-                  ))}
+    <div className="space-y-4">
+      <PageHeader
+        title="Wallet"
+        description="The agent’s operating budget. Keys never reach the AI: Circle custodies them (developer-controlled wallet) or, in testnet-key mode, they stay in server env and only sign through the policy engine."
+        meta={
+          <>
+            <ModeBadge mode={wallet?.dataMode ?? (demo ? "DEMO" : "SIMULATED")} />
+            <span>{ARC.name}</span>
+            <span className="text-ink-4">·</span>
+            <span>{wallet ? CUSTODY_LABEL[wallet.provider] ?? wallet.provider : "No wallet"}</span>
+          </>
+        }
+        actions={<ActionButton action={refreshSettlementsAction} label="Refresh settlements" icon={<RefreshCw />} />}
+      />
+
+      <StatStrip className="grid-cols-2 lg:grid-cols-4">
+        <Stat label="Wallet USDC · Arc" value={balances.walletMicro != null ? fmtUsdc(balances.walletMicro, { unit: false }) : "—"} sub={!address ? "no wallet" : balances.walletMicro == null ? "RPC unreachable" : "on-chain balance"} />
+        <Stat label="Gateway available" value={balances.gatewayMicro != null ? fmtUsdc(balances.gatewayMicro, { unit: false }) : "—"} sub={!address ? "no wallet" : balances.gatewayMicro == null ? "Gateway API unreachable" : "spendable via x402"} />
+        <Stat label="Spent today" value={fmtUsdc(spentToday, { unit: false })} sub={`limit ${fmtUsdc(policy?.dailySpendMicro, { unit: false })} USDC`} tone={policy && spentToday >= policy.dailySpendMicro ? "warn" : undefined} />
+        <Stat label="Mission remaining" value={sum && mission ? fmtUsdc(mission.budgetMicro - sum.spent, { unit: false }) : "—"} sub={sum ? `${fmtUsdc(sum.available, { unit: false })} uncommitted` : "no active mission"} />
+      </StatStrip>
+
+      {balances.errors.length > 0 && (
+        <Callout tone="warn" title="Live balance reads failed">
+          {balances.errors.join(" · ")}. Nothing is shown in their place.
+        </Callout>
+      )}
+
+      {wallet?.frozen && (
+        <Callout tone="danger" title="Kill switch is on" action={manage ? <ActionButton action={toggleFreezeAction} label="Resume spending" icon={<Unlock />} size="xs" /> : undefined}>
+          Every spend is denied by the policy engine until a wallet manager resumes spending.
+        </Callout>
+      )}
+
+      {!address ? (
+        <WalletSetup custody={custody} manage={manage} demo={demo} />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader title="Workspace wallet" description="Arc Testnet EOA the agent spends from" icon={<WalletIcon />} action={statusBadge} />
+              <CardBody className="space-y-4">
+                <div>
+                  <div className="label mb-1.5">Address</div>
+                  <div className="flex items-center gap-2">
+                    <CopyField value={address} className="flex-1" />
+                    <a href={addressExplorerUrl("Arc_Testnet", address)} target="_blank" rel="noreferrer" className="inline-flex h-8 shrink-0 items-center gap-1 rounded-[6px] border border-line-strong px-2.5 text-[12px] text-ink-2 hover:bg-surface-2 hover:text-ink">
+                      Explorer <ArrowUpRight className="size-3.5" />
+                    </a>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <div className="text-[12px] text-ink-3">{address ? `Unavailable: ${ub?.err ?? "—"}` : "Configure a wallet to read the chain-abstracted Gateway balance (Arc + Base Sepolia + Arbitrum Sepolia)."}</div>
-            )}
-          </Panel>
-          <Panel title="Controls">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-[12px]">
-                <StatusDot tone={wallet?.frozen ? "bad" : "good"} /> {wallet?.frozen ? "Kill switch ON — every spend is denied by policy" : "Spending allowed within policy"}
-              </div>
-              <ActionButton action={toggleFreezeAction} label={wallet?.frozen ? "Resume spending" : "Freeze all spending"} variant={wallet?.frozen ? "default" : "danger"} showLog={false} confirm={wallet?.frozen ? undefined : "Freeze all agent spending?"} />
-              <ActionButton action={refreshSettlementsAction} label="Refresh settlement status" showLog={false} />
-              {process.env.ONRAMP_API_KEY && address ? <OnrampButton address={address} userId={user.id} /> : <p className="text-[11px] text-ink-3">Add budget via Arc Onramp: set ONRAMP_API_KEY (optional).</p>}
-            </div>
-          </Panel>
-          <Panel title="Idle funds — Earn (recommendation only)">
-            <p className="text-[12px] text-ink-2">
-              7-day spend run-rate <span className="num">{fmtUsdc(weekly)}</span>. Uncommitted beyond two weeks of run-rate: <span className="num">{fmtUsdc(idle)}</span>.
-            </p>
-            <p className="mt-2 text-[11.5px] text-ink-3">
-              {idle >= 1_000_000_000
-                ? "GrowthOS would recommend placing part of this in a supported App Kit Earn vault — only with explicit founder approval."
-                : "Not enough idle capital to justify moving funds."}{" "}
-              GrowthOS never makes yield decisions autonomously; Circle&apos;s Earn Kit is marked &quot;coming soon&quot;, so execution is not enabled in this build. Borrow is intentionally not built.
-            </p>
-          </Panel>
+                <KeyValue
+                  items={[
+                    { k: "Network", v: `${ARC.name} · chain ${ARC.chainId} · Gateway domain ${ARC.gatewayDomain}` },
+                    { k: "Custody", v: CUSTODY_LABEL[wallet!.provider] ?? wallet!.provider },
+                    ...(wallet!.circleWalletId ? [{ k: "Circle wallet ID", v: <span className="num text-[11.5px]">{wallet!.circleWalletId}</span> }] : []),
+                    { k: "USDC contract", v: <ExternalLink href={addressExplorerUrl("Arc_Testnet", ARC.usdc)} className="num text-[11.5px]">{shortHash(ARC.usdc)}</ExternalLink> },
+                    { k: "GatewayWallet", v: <ExternalLink href={addressExplorerUrl("Arc_Testnet", ARC.gatewayWallet)} className="num text-[11.5px]">{shortHash(ARC.gatewayWallet)}</ExternalLink> },
+                    { k: "Created", v: relTime(wallet!.createdAt) },
+                  ]}
+                />
+                {!live && (
+                  <Callout tone="warn" title="This deployment can’t sign for this wallet">
+                    The wallet is recorded but its custody isn’t available here ({custody ? `custody is “${custody}”` : "no custody configured"}). Payments fall back to SIMULATED until <Code>CIRCLE_API_KEY</Code> and <Code>CIRCLE_ENTITY_SECRET</Code> are set.
+                  </Callout>
+                )}
+              </CardBody>
+              <CardFooter>
+                <span className="flex items-center gap-1.5">
+                  <StatusDot tone={wallet!.frozen ? "bad" : live ? "good" : "warn"} />
+                  {wallet!.frozen ? "Kill switch on — every spend is denied" : live ? "Spending allowed within policy" : "Simulation only"}
+                </span>
+                <Link href="/app/settings#policy" className="hover:text-ink">
+                  Spend policy →
+                </Link>
+              </CardFooter>
+            </Card>
+
+            <Card>
+              <CardHeader title="Fund Circle Gateway" description="x402 services are paid by signature from the Gateway balance, not the wallet directly" icon={<ArrowLeftRight />} />
+              <CardBody>
+                {manage ? (
+                  <DepositForm disabled={!live || wallet!.frozen || demo} reason={demo ? "Demo workspaces run in simulation — create a real workspace to deposit." : !live ? "The wallet can’t sign on this deployment." : wallet!.frozen ? "The wallet is frozen." : undefined} />
+                ) : (
+                  <p className="text-[12.5px] text-ink-3">Only owners and admins can move treasury funds.</p>
+                )}
+              </CardBody>
+              {deposits.length > 0 ? (
+                <Table className="border-t border-line">
+                  <thead>
+                    <tr>
+                      <th>Deposit</th>
+                      <th>Status</th>
+                      <th className="text-right">Attempts</th>
+                      <th>Queued</th>
+                      <th>Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deposits.map((j) => {
+                      const r = (j.result ?? {}) as { depositTx?: string; approveTx?: string | null };
+                      return (
+                        <tr key={j.id}>
+                          <td className="num">{String((j.payload as { amount?: string }).amount ?? "—")} USDC</td>
+                          <td>
+                            <StatusBadge status={j.status} />
+                          </td>
+                          <td className="num text-right text-ink-3">
+                            {j.attempts}/{j.maxAttempts}
+                          </td>
+                          <td className="whitespace-nowrap text-ink-3">{relTime(j.createdAt)}</td>
+                          <td className="max-w-[220px] truncate text-[11.5px]">
+                            {r.depositTx ? (
+                              <ExternalLink href={txExplorerUrl("Arc_Testnet", r.depositTx)} className="num">
+                                {shortHash(r.depositTx, 4)}
+                              </ExternalLink>
+                            ) : j.lastError ? (
+                              <span className="text-critical" title={j.lastError}>
+                                {j.lastError}
+                              </span>
+                            ) : (
+                              <span className="text-ink-4">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
+              ) : (
+                <CardFooter>No Gateway deposits yet — deposits appear here with their Arc transaction once the worker runs them.</CardFooter>
+              )}
+            </Card>
+          </div>
+
+          <div className="space-y-4">
+            <Card>
+              <CardHeader title="Controls" icon={<ShieldCheck />} />
+              <CardBody className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[12.5px] font-medium text-ink">Kill switch</div>
+                    <div className="text-[11.5px] text-ink-3">{wallet!.frozen ? "On — every spend is denied by policy" : "Off — spending allowed within policy"}</div>
+                  </div>
+                  {manage ? (
+                    <ActionButton action={toggleFreezeAction} label={wallet!.frozen ? "Resume spending" : "Freeze spending"} icon={wallet!.frozen ? <Unlock /> : <Snowflake />} variant={wallet!.frozen ? "secondary" : "danger"} confirm={wallet!.frozen ? undefined : "Freeze all agent spending? Every spend will be denied until resumed."} />
+                  ) : (
+                    <Badge tone="muted">
+                      <Lock className="size-3" /> Owner / admin
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
+                  <div className="min-w-0">
+                    <div className="text-[12.5px] font-medium text-ink">Settlements</div>
+                    <div className="text-[11.5px] text-ink-3">Poll Gateway for in-flight x402 payments</div>
+                  </div>
+                  <ActionButton action={refreshSettlementsAction} label="Refresh" icon={<RefreshCw />} />
+                </div>
+                <div className="border-t border-line pt-3">
+                  <div className="mb-2 text-[12.5px] font-medium text-ink">Add budget</div>
+                  {process.env.ONRAMP_API_KEY ? (
+                    <OnrampButton address={address} userId={user.id} disabled={!manage} />
+                  ) : (
+                    <p className="text-[11.5px] text-ink-3">
+                      Arc Onramp is optional — set <Code>ONRAMP_API_KEY</Code> to buy USDC straight into this wallet. Otherwise fund it from{" "}
+                      <ExternalLink href="https://faucet.circle.com">faucet.circle.com</ExternalLink>.
+                    </p>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader title="Unified balance" description="Gateway balance across chains, via App Kit" icon={<Layers />} />
+              <CardBody>
+                {ub?.v ? (
+                  <>
+                    <div className="num text-[24px] font-medium tracking-[-0.03em]">{fmtUsdc(ub.v.totalMicro)}</div>
+                    <div className="mt-0.5 text-[11.5px] text-ink-3">Available growth capital across chains</div>
+                    {ub.v.byChain.length > 0 && (
+                      <KeyValue className="mt-3" items={ub.v.byChain.map((c) => ({ k: c.label, v: <span className="num">{fmtUsdc(c.micro)}</span> }))} />
+                    )}
+                  </>
+                ) : (
+                  <p className="text-[12.5px] text-ink-3">Unavailable: {ub?.err ?? "—"}</p>
+                )}
+              </CardBody>
+            </Card>
+
+            <AppKitCard />
+            <EarnCard weekly={weekly} idle={idle} />
+          </div>
         </div>
-      </div>
+      )}
+
+      {!address && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <AppKitCard />
+          <EarnCard weekly={weekly} idle={idle} />
+        </div>
+      )}
     </div>
+  );
+}
+
+function WalletSetup({ custody, manage, demo }: { custody: "circle" | "local" | null; manage: boolean; demo: boolean }) {
+  if (demo)
+    return (
+      <EmptyState
+        icon={<WalletIcon />}
+        title="Demo workspaces run in simulation"
+        description="Every payment in the demo is labelled SIMULATED or DEMO — no funds move. Create a real workspace to provision an Arc Testnet wallet."
+      />
+    );
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+      <Card>
+        <CardHeader title="Create the workspace wallet" description="Each workspace gets its own Arc Testnet wallet — the agent’s operating budget" icon={<WalletIcon />} action={<Badge tone="warn">Not set up</Badge>} />
+        <CardBody className="space-y-4">
+          {custody === "circle" ? (
+            <Callout tone="info" title="Circle developer-controlled wallets">
+              Keys live in Circle’s custody. GrowthOS holds only the API key and entity secret, server-side, and creates a dedicated EOA on ARC-TESTNET for this workspace.
+            </Callout>
+          ) : custody === "local" ? (
+            <Callout tone="warn" title="Testnet key (development only)">
+              This deployment signs with a single server-side testnet key (<Code>AGENT_PRIVATE_KEY</Code>). It is never sent to the browser or the LLM, and is refused outside testnet. Use Circle custody for anything shared.
+            </Callout>
+          ) : (
+            <Callout tone="danger" title="No custody configured on this deployment">
+              Set <Code>CIRCLE_API_KEY</Code> and <Code>CIRCLE_ENTITY_SECRET</Code> in the server environment to create Circle developer-controlled wallets. Until then, every payment runs as SIMULATED and moves nothing.
+            </Callout>
+          )}
+          {manage ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <ActionButton action={provisionWalletAction} label="Create wallet on Arc Testnet" icon={<CircleDollarSign />} variant="primary" disabled={!custody} />
+              <span className="text-[11.5px] text-ink-3">{custody ? "Takes a few seconds. Fund it afterwards from faucet.circle.com." : "Enabled once custody is configured."}</span>
+            </div>
+          ) : (
+            <p className="text-[12.5px] text-ink-3">Ask a workspace owner or admin to create the wallet.</p>
+          )}
+        </CardBody>
+      </Card>
+      <Card>
+        <CardHeader title="Attach an existing Circle wallet" description="Already have an ARC-TESTNET developer-controlled wallet?" icon={<ArrowLeftRight />} />
+        <CardBody>
+          {manage ? (
+            custody === "circle" ? (
+              <AttachWalletForm />
+            ) : (
+              <p className="text-[12.5px] text-ink-3">
+                Attaching needs Circle credentials on the server (<Code>CIRCLE_API_KEY</Code>, <Code>CIRCLE_ENTITY_SECRET</Code>).
+              </p>
+            )
+          ) : (
+            <p className="text-[12.5px] text-ink-3">Only owners and admins can attach wallets.</p>
+          )}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+function AppKitCard() {
+  const caps = [
+    { icon: <Send />, label: "Send", detail: "USDC transfers on Arc — used for creator payouts after policy and approval." },
+    { icon: <ArrowLeftRight />, label: "Bridge", detail: "Move USDC between Arc, Base Sepolia and Arbitrum Sepolia via CCTP." },
+    { icon: <Layers />, label: "Unified balance", detail: "Read one Gateway balance across chains (read-only, no signing)." },
+  ];
+  return (
+    <Card>
+      <CardHeader title="App Kit capabilities" description="Every call goes through Zod → policy engine → (approval) first" />
+      <ul className="divide-y divide-line">
+        {caps.map((c) => (
+          <li key={c.label} className="flex items-start gap-3 px-4 py-2.5">
+            <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-[6px] bg-surface-2 text-ink-3 ring-1 ring-line [&_svg]:size-3.5">{c.icon}</span>
+            <span className="min-w-0">
+              <span className="block text-[12.5px] font-medium text-ink">{c.label}</span>
+              <span className="block text-[11.5px] leading-snug text-ink-3">{c.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function EarnCard({ weekly, idle }: { weekly: number; idle: number }) {
+  return (
+    <Card>
+      <CardHeader title="Idle funds · Earn" description="Recommendation only — never executed" icon={<PiggyBank />} action={<Badge tone="muted">Advisory</Badge>} />
+      <CardBody className="space-y-3">
+        <div className="grid grid-cols-2 gap-4">
+          <Stat size="sm" label="7-day run-rate" value={fmtUsdc(weekly, { unit: false })} sub="USDC spent" />
+          <Stat size="sm" label="Idle beyond 2 weeks" value={fmtUsdc(idle, { unit: false })} sub="uncommitted" tone={idle >= 1_000_000_000 ? "good" : undefined} />
+        </div>
+        <p className="text-[12px] leading-relaxed text-ink-2">
+          {idle >= 1_000_000_000 ? "GrowthOS would recommend placing part of this in a supported App Kit Earn vault — only with explicit founder approval." : "Not enough idle capital to justify moving funds."}
+        </p>
+        <p className="text-[11.5px] leading-relaxed text-ink-3">GrowthOS never makes yield decisions autonomously; Circle’s Earn Kit is marked “coming soon”, so execution is not enabled in this build. Borrow is intentionally not built.</p>
+      </CardBody>
+    </Card>
   );
 }

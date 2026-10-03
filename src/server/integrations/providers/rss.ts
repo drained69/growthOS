@@ -26,12 +26,15 @@ export function parseFeed(xml: string): { title: string; link: string; date: Dat
 export const rss: MarketProvider = {
   id: "rss",
   name: "News & blogs (RSS)",
-  status: () => {
-    const ok = !!process.env.RSS_FEEDS;
-    return { id: "rss", name: "News & blogs (RSS)", available: ok, note: ok ? `${process.env.RSS_FEEDS!.split(",").length} configured feed(s)` : "Set RSS_FEEDS to a comma-separated list of feed URLs", requiresEnv: ["RSS_FEEDS"] };
-  },
-  async search(query, { since, limit }) {
-    const feeds = (process.env.RSS_FEEDS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  description: "News and blog posts from RSS/Atom feeds you choose, filtered to your search terms.",
+  category: "news",
+  docsUrl: "https://www.rssboard.org/rss-specification",
+  access: "public_api",
+  credentialFields: [{ key: "feeds", label: "Feed URLs", secret: false, placeholder: "https://blog.example.com/feed.xml, …", help: "Comma-separated RSS or Atom feed URLs." }],
+  envFallback: { feeds: "RSS_FEEDS" },
+  isReady: (c) => !!c.feeds,
+  async search(query, { since, limit }, creds) {
+    const feeds = (creds.feeds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     const terms = query.split(/\s+OR\s+/i).map((t) => t.replace(/"/g, "").trim());
     const out: FetchedPost[] = [];
     for (const feed of feeds) {

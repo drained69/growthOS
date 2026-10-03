@@ -1,220 +1,321 @@
 import Link from "next/link";
-import { and, desc, eq, gte, ne } from "drizzle-orm";
+import { and, count, desc, eq, gte, ne } from "drizzle-orm";
+import { ArrowRight, Building2, CircleDollarSign, Flag, Plug, Radar, Sparkles, TrendingUp, Users } from "lucide-react";
 import { requireProject } from "@/server/auth/current";
+import { can } from "@/server/auth/access";
 import { schema as s } from "@/server/db/client";
-import { activeMission, missionSummary, recentDecisions, recentTransactions, walletSnapshot, CATEGORY_LABEL } from "@/server/queries/views";
+import { activeMission, missionSummary, CATEGORY_LABEL } from "@/server/queries/missions";
+import { recentDecisions, recentTransactions, spentTodayMicro } from "@/server/queries/activity";
+import { getWallet, walletIsLive } from "@/server/integrations/circle/wallets";
+import { listConnections } from "@/server/integrations/vault";
+import { activeJob } from "@/server/jobs/queue";
+import { runCycleAction } from "@/server/actions/agent";
 import { fmtUsdc } from "@/lib/money";
 import { relTime, DAY_MS } from "@/lib/time";
-import { Panel, PageHeader, Stat, ModeBadge, Confidence, Velocity, VerdictBadge, TxState, Badge, Empty, LinkBtn, shortHash } from "@/components/ui";
+import { Badge, Callout, Card, CardBody, CardFooter, CardHeader, Confidence, EmptyState, LinkButton, ModeBadge, PageHeader, Stat, StatusDot, TxStateBadge, Velocity, VerdictBadge, shortHash } from "@/components/ui";
 import { GoalProgress, StackedBar, BarList, Sparkline } from "@/components/charts";
-import { walletMode } from "@/server/integrations/circle/config";
+import { ActionButton } from "@/components/features/agent/action-button";
 
-export default async function Overview() {
-  const { project, db } = await requireProject();
-  const mission = await activeMission(db, project.id);
+const more = (href: string, label = "View all") => (
+  <Link href={href} className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink">
+    {label} <ArrowRight className="size-3" />
+  </Link>
+);
+
+export default async function Overview({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
+  const { welcome } = await searchParams;
+  const { project, role, db } = await requireProject();
+  const pid = project.id;
+  const demo = project.dataMode === "DEMO";
+
+  const [mission, wallet, connections, scanning, decisions, txs, spentToday] = await Promise.all([
+    activeMission(db, pid),
+    getWallet(db, pid),
+    listConnections(db, pid),
+    activeJob(db, pid, "cycle"),
+    recentDecisions(db, pid, 7),
+    recentTransactions(db, pid, 6),
+    spentTodayMicro(db, pid),
+  ]);
   const sum = mission ? await missionSummary(db, mission) : null;
-  const { spentToday, wallet } = await walletSnapshot(db, project.id);
-  const [policy] = await db.select().from(s.policies).where(eq(s.policies.projectId, project.id));
-  const qualified = await db.select().from(s.companies).where(eq(s.companies.projectId, project.id)).orderBy(desc(s.companies.overallScore)).limit(5);
-  const [topNarr] = await db.select().from(s.narratives).where(eq(s.narratives.projectId, project.id)).orderBy(desc(s.narratives.relevance), desc(s.narratives.velocityPct)).limit(1);
-  const [topKol] = await db.select().from(s.opportunities).where(and(eq(s.opportunities.projectId, project.id), eq(s.opportunities.type, "KOL"), ne(s.opportunities.status, "dismissed"))).orderBy(desc(s.opportunities.overallScore)).limit(1);
-  const decisions = await recentDecisions(db, project.id, 8);
-  const txs = await recentTransactions(db, project.id, 6);
-  const blocking = await db.select().from(s.productIssues).where(and(eq(s.productIssues.projectId, project.id), gte(s.productIssues.mentions7d, 3)));
-  const posts = await db.select({ at: s.socialPosts.publishedAt }).from(s.socialPosts).where(and(eq(s.socialPosts.projectId, project.id), gte(s.socialPosts.publishedAt, new Date(Date.now() - 14 * DAY_MS))));
+  const [[policy], qualified, [topNarr], [topKol], issues, posts, [counts]] = await Promise.all([
+    db.select().from(s.policies).where(eq(s.policies.projectId, pid)),
+    db.select().from(s.companies).where(eq(s.companies.projectId, pid)).orderBy(desc(s.companies.overallScore)).limit(6),
+    db.select().from(s.narratives).where(eq(s.narratives.projectId, pid)).orderBy(desc(s.narratives.relevance), desc(s.narratives.velocityPct)).limit(1),
+    db.select().from(s.opportunities).where(and(eq(s.opportunities.projectId, pid), eq(s.opportunities.type, "KOL"), ne(s.opportunities.status, "dismissed"))).orderBy(desc(s.opportunities.overallScore)).limit(1),
+    db.select().from(s.productIssues).where(and(eq(s.productIssues.projectId, pid), gte(s.productIssues.mentions7d, 3))),
+    db.select({ at: s.socialPosts.publishedAt }).from(s.socialPosts).where(and(eq(s.socialPosts.projectId, pid), gte(s.socialPosts.publishedAt, new Date(Date.now() - 14 * DAY_MS)))),
+    db.select({ n: count() }).from(s.evidence).where(eq(s.evidence.projectId, pid)),
+  ]);
   const daily = Array.from({ length: 14 }, (_, i) => posts.filter((p) => Math.floor((Date.now() - p.at.getTime()) / DAY_MS) === 13 - i).length);
+  const live = walletIsLive(wallet);
+  const connected = connections.filter((c) => c.source === "workspace" || c.source === "platform" || c.source === "keyless").length;
+
+  const setup = [
+    { done: !!mission, label: "Set a mission", detail: "A goal and a USDC budget to work against", href: "/app/missions", icon: <Flag /> },
+    { done: connected > 0, label: "Connect market sources", detail: `${connected} of ${connections.length} sources ready`, href: "/app/integrations", icon: <Plug /> },
+    { done: live, label: "Create the agent wallet", detail: "Arc Testnet wallet the agent spends from", href: "/app/wallet", icon: <CircleDollarSign /> },
+    { done: (counts?.n ?? 0) > 0, label: "Run the first scan", detail: scanning ? "Scan in progress…" : "Collect evidence from connected sources", href: "/app/runs", icon: <Radar /> },
+  ];
+  const setupLeft = setup.filter((x) => !x.done).length;
 
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
         title="Overview"
-        sub={`${project.name} — the operator's view: goal, money, evidence, and what it decided.`}
-        right={
-          project.dataMode === "DEMO" ? (
-            <LinkBtn href="/app/demo" variant="default">
-              Guided demo →
-            </LinkBtn>
-          ) : null
+        description={`${project.name} — goal, money, evidence, and what the operator decided.`}
+        meta={
+          <>
+            <ModeBadge mode={project.dataMode} />
+            {project.lastCycleAt ? <span>Last cycle {relTime(project.lastCycleAt)}</span> : <span>No cycle has run yet</span>}
+          </>
+        }
+        actions={
+          <>
+            {demo && (
+              <LinkButton href="/app/demo" icon={<Sparkles />}>
+                Guided demo
+              </LinkButton>
+            )}
+            {can(role, "operate") && <ActionButton action={runCycleAction} label="Run cycle" variant="primary" icon={<Radar />} />}
+          </>
         }
       />
 
-      {mission && sum ? (
-        <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
-          <Panel title={<span className="flex items-center gap-2">Active mission <ModeBadge mode={mission.dataMode} /></span>} right={<span className="num">{sum.daysLeft}d left</span>}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div className="text-[15px] font-semibold">{mission.name}</div>
-              <div className="text-[12px] text-ink-3">Goal: {mission.goalDescription}</div>
-            </div>
-            <div className="mt-3 flex items-end justify-between gap-4">
-              <div className="num text-[34px] font-medium leading-none">
-                {sum.achieved}
-                <span className="text-[16px] text-ink-3"> / {mission.goalTarget}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-5 text-right">
-                <Stat label="Attributed" value={sum.attributed} sub="to experiments" />
-                <Stat label="Cost / qualified" value={sum.costPerQualified ? fmtUsdc(sum.costPerQualified, { unit: false }) : "—"} sub="USDC, measured" />
-                <Stat label="Efficiency" value={sum.efficiency} sub="growth / USDC" />
-              </div>
-            </div>
-            <div className="mt-3">
-              <GoalProgress achieved={sum.achieved} goal={mission.goalTarget} pace={sum.pace} />
-              <div className="mt-1 flex justify-between text-[10.5px] text-ink-3">
-                <span>progress (marker = on-pace target {Math.round(sum.pace)})</span>
-                <span className="num">{Math.round((sum.achieved / mission.goalTarget) * 100)}%</span>
-              </div>
-            </div>
-          </Panel>
-
-          <Panel title="Budget" right={<Link href="/app/wallet" className="hover:text-ink">wallet →</Link>}>
-            <div className="grid grid-cols-4 gap-3">
-              <Stat label="Total" value={fmtUsdc(mission.budgetMicro, { unit: false })} sub="USDC" />
-              <Stat label="Spent" value={fmtUsdc(sum.spent, { unit: false })} />
-              <Stat label="Committed" value={fmtUsdc(sum.committed, { unit: false })} />
-              <Stat label="Available" value={fmtUsdc(sum.available, { unit: false })} tone="good" />
-            </div>
-            <div className="mt-4">
-              <StackedBar total={mission.budgetMicro} parts={sum.allocation.map((a) => ({ key: a.category, label: CATEGORY_LABEL[a.category] ?? a.category, value: a.allocated, display: fmtUsdc(a.allocated, { unit: false }) }))} />
-            </div>
-            <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-[11.5px] text-ink-3">
-              <span>
-                Today <span className="num text-ink">{fmtUsdc(spentToday)}</span> of {fmtUsdc(policy?.dailySpendMicro)} daily limit
-              </span>
-              <span>{wallet?.frozen ? <Badge tone="bad">FROZEN</Badge> : walletMode() === "unconfigured" ? <Badge tone="warn">SIMULATION</Badge> : <Badge tone="good">ACTIVE · Arc</Badge>}</span>
-            </div>
-          </Panel>
-        </div>
-      ) : (
-        <Empty title="No active mission">Create a mission so GrowthOS has a goal and a budget to work against.</Empty>
+      {welcome && !demo && (
+        <Callout tone="success" title="Workspace created">
+          {scanning ? "The first market scan is running in the background — evidence will appear here as it lands." : "Your workspace is ready. Finish the checklist below so the operator can work end to end."}
+        </Callout>
       )}
 
-      {blocking.filter((b) => b.blocksAcquisition || b.mentions7d >= 3).map((b) => (
-        <div key={b.id} className="mt-3 flex items-center justify-between gap-3 rounded-md border border-serious/40 bg-serious/5 px-3.5 py-2.5">
-          <div className="text-[12.5px]">
-            <span className="font-medium text-serious">Product issue: {b.label}</span>
-            <span className="text-ink-2"> — {b.mentions7d} mentions this week ({b.changePct >= 0 ? "+" : ""}{b.changePct}%). {b.recommendation}</span>
+      {!demo && setupLeft > 0 && (
+        <Card>
+          <CardHeader title="Get the operator running" description={`${setup.length - setupLeft} of ${setup.length} steps complete`} />
+          <div className="grid divide-line sm:grid-cols-2 sm:divide-x lg:grid-cols-4">
+            {setup.map((x) => (
+              <Link key={x.label} href={x.href} className="group flex items-start gap-3 border-t border-line px-4 py-3.5 transition-colors first:border-t-0 hover:bg-surface-2 sm:border-t-0">
+                <span className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-[7px] ring-1 [&_svg]:size-3.5 ${x.done ? "bg-good/10 text-good ring-good/25" : "bg-surface-2 text-ink-3 ring-line-strong"}`}>{x.icon}</span>
+                <span className="min-w-0">
+                  <span className={`block text-[12.5px] font-medium ${x.done ? "text-ink-3 line-through" : "text-ink"}`}>{x.label}</span>
+                  <span className="block text-[11.5px] text-ink-3">{x.detail}</span>
+                </span>
+              </Link>
+            ))}
           </div>
-          <LinkBtn href="/app/discover?filter=feedback" variant="ghost">
-            evidence →
-          </LinkBtn>
+        </Card>
+      )}
+
+      {mission && sum ? (
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <Card>
+            <CardHeader title={mission.name} description={mission.goalDescription} icon={<Flag />} action={<><ModeBadge mode={mission.dataMode} /><Badge>{sum.daysLeft}d left</Badge></>} />
+            <CardBody>
+              <div className="flex flex-wrap items-end justify-between gap-6">
+                <div>
+                  <div className="text-[11.5px] font-medium text-ink-3">Progress</div>
+                  <div className="num mt-1 text-[34px] font-medium leading-none tracking-[-0.03em]">
+                    {sum.achieved}
+                    <span className="text-[16px] text-ink-3"> / {mission.goalTarget}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-6">
+                  <Stat size="sm" label="Attributed" value={sum.attributed} sub="to experiments" />
+                  <Stat size="sm" label="Cost / qualified" value={sum.costPerQualified ? fmtUsdc(sum.costPerQualified, { unit: false }) : "—"} sub="USDC, measured" />
+                  <Stat size="sm" label="Efficiency" value={sum.efficiency} sub="growth per USDC" />
+                </div>
+              </div>
+              <div className="mt-4">
+                <GoalProgress achieved={sum.achieved} goal={mission.goalTarget} pace={sum.pace} />
+                <div className="mt-1.5 flex justify-between text-[11px] text-ink-3">
+                  <span>Marker shows on-pace target ({Math.round(sum.pace)})</span>
+                  <span className="num">{Math.round((sum.achieved / Math.max(1, mission.goalTarget)) * 100)}%</span>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Budget" icon={<CircleDollarSign />} action={more("/app/wallet", "Wallet")} />
+            <CardBody>
+              <div className="grid grid-cols-4 gap-3">
+                <Stat size="sm" label="Total" value={fmtUsdc(mission.budgetMicro, { unit: false })} />
+                <Stat size="sm" label="Spent" value={fmtUsdc(sum.spent, { unit: false })} />
+                <Stat size="sm" label="Committed" value={fmtUsdc(sum.committed, { unit: false })} />
+                <Stat size="sm" label="Available" value={fmtUsdc(sum.available, { unit: false })} tone="good" />
+              </div>
+              <div className="mt-4">
+                <StackedBar total={mission.budgetMicro} parts={sum.allocation.map((a) => ({ key: a.category, label: CATEGORY_LABEL[a.category] ?? a.category, value: a.allocated, display: fmtUsdc(a.allocated, { unit: false }) }))} />
+              </div>
+            </CardBody>
+            <CardFooter>
+              <span>
+                Today <span className="num text-ink">{fmtUsdc(spentToday)}</span> of {fmtUsdc(policy?.dailySpendMicro)}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <StatusDot tone={wallet?.frozen ? "bad" : live ? "good" : "warn"} />
+                {wallet?.frozen ? "Frozen" : live ? "Wallet live · Arc Testnet" : "Simulation only"}
+              </span>
+            </CardFooter>
+          </Card>
         </div>
+      ) : (
+        <EmptyState icon={<Flag />} title="No active mission" description="A mission gives the operator a measurable goal and a budget ceiling. Nothing is spent without one." action={<LinkButton href="/app/missions" variant="primary">Create mission</LinkButton>} />
+      )}
+
+      {issues.map((b) => (
+        <Callout
+          key={b.id}
+          tone="warn"
+          title={`Product issue: ${b.label}`}
+          action={<LinkButton href="/app/discover?filter=feedback" size="xs" variant="ghost">Evidence</LinkButton>}
+        >
+          {b.mentions7d} mentions this week ({b.changePct >= 0 ? "+" : ""}
+          {b.changePct}%). {b.recommendation}
+        </Callout>
       ))}
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-3">
-        <Panel title="Qualified customers" right={<Link href="/app/customers" className="hover:text-ink">all →</Link>} pad={false}>
-          <ul>
-            {qualified.map((c) => (
-              <li key={c.id} className="border-b border-line px-3.5 py-2 last:border-b-0">
-                <Link href={`/app/customers/${c.id}`} className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[12.5px] font-medium">{c.name}</span>
-                  <span className="flex items-center gap-2">
-                    <span className="num text-[11px] text-ink-3">intent {c.intentScore}</span>
-                    <Confidence value={c.confidence} compact />
-                  </span>
-                </Link>
-              </li>
-            ))}
-            {!qualified.length && <li className="px-3.5 py-3 text-[12px] text-ink-3">No companies with intent yet.</li>}
-          </ul>
-        </Panel>
-
-        <Panel title="Top narrative" right={<Link href="/app/narratives" className="hover:text-ink">all →</Link>}>
-          {topNarr ? (
-            <Link href={`/app/narratives/${topNarr.id}`} className="block">
-              <div className="flex items-center justify-between">
-                <span className="text-[15px] font-semibold">{topNarr.label}</span>
-                <Velocity pct={topNarr.velocityPct} />
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-[11.5px] text-ink-3">
-                <Badge tone="info">{topNarr.status}</Badge> <span className="num">{topNarr.volume7d}</span> posts this week · relevance <span className="num">{topNarr.relevance}</span>
-              </div>
-              <div className="mt-3">
-                <div className="label mb-1">Market volume, 14 days</div>
-                <Sparkline values={daily} width={260} height={36} label="relevant posts" />
-              </div>
-            </Link>
-          ) : (
-            <div className="text-[12px] text-ink-3">No narratives yet.</div>
-          )}
-        </Panel>
-
-        <Panel title="Top KOL opportunity" right={<Link href="/app/kols" className="hover:text-ink">all →</Link>}>
-          {topKol ? (
-            <Link href={`/app/opportunities/${topKol.id}`} className="block">
-              <div className="text-[14px] font-semibold">{topKol.title}</div>
-              <ul className="mt-2 space-y-1 text-[12px] text-ink-2">
-                {topKol.whyNow.slice(0, 3).map((w) => (
-                  <li key={w}>• {w}</li>
-                ))}
-              </ul>
-              <div className="mt-2 flex items-center justify-between">
-                <Confidence value={topKol.confidence} />
-                <span className="num text-[11.5px] text-ink-3">est. {fmtUsdc(topKol.estimatedCostMicro)}</span>
-              </div>
-            </Link>
-          ) : (
-            <div className="text-[12px] text-ink-3">No open KOL opportunities.</div>
-          )}
-        </Panel>
-      </div>
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1.3fr]">
-        <Panel title="Experiment performance — cost per qualified conversion" right={<Link href="/app/experiments" className="hover:text-ink">experiments →</Link>}>
-          {sum?.findings.length ? (
-            <BarList
-              format={(v) => fmtUsdc(v, { unit: false })}
-              rows={sum.findings.filter((f) => f.cpaMicro != null).map((f) => ({ label: f.label, value: f.cpaMicro!, sub: `${f.conversions} conv · ${f.verdict}`, tone: f.verdict === "STOP" || f.verdict === "REDUCE" ? "bad" : f.verdict === "SCALE" ? "good" : undefined }))}
-            />
-          ) : (
-            <div className="text-[12px] text-ink-3">No measured experiments yet.</div>
-          )}
-          <p className="mt-3 text-[11px] text-ink-3">USDC per attributed {mission?.goalEvent.replace(/_/g, " ")} (lower is better). From settled spend and referral-code attribution only.</p>
-        </Panel>
-
-        <Panel title="Recent agent decisions" right={<Link href="/app/activity#decisions" className="hover:text-ink">all →</Link>} pad={false}>
-          <ul>
-            {decisions.map((d) => (
-              <li key={d.id} className="border-b border-line px-3.5 py-2 last:border-b-0">
-                <Link href={`/app/receipts/${d.id}`} className="grid grid-cols-[auto_1fr_auto] items-start gap-3">
-                  <span className="num pt-px text-[11px] text-ink-3">#{d.number}</span>
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-2 text-[12px]">
-                      <span className="font-medium uppercase tracking-wide text-ink-2">{d.kind.replace(/_/g, " ")}</span>
-                      <span className="text-ink-4">·</span>
-                      <span className="text-ink-3">{d.agent}</span>
-                      <ModeBadge mode={d.dataMode} />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader title="Qualified customers" icon={<Building2 />} action={more("/app/customers")} />
+          {qualified.length ? (
+            <ul className="divide-y divide-line">
+              {qualified.map((c) => (
+                <li key={c.id}>
+                  <Link href={`/app/customers/${c.id}`} className="flex items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-surface-2">
+                    <span className="min-w-0">
+                      <span className="block truncate text-[12.5px] font-medium">{c.name}</span>
+                      <span className="num block text-[11px] text-ink-3">intent {c.intentScore} · fit {c.fitScore}</span>
                     </span>
-                    <span className="mt-0.5 line-clamp-1 block text-[12px] text-ink-2">{d.rationale}</span>
+                    <Confidence value={c.confidence} compact />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <CardBody className="text-[12.5px] text-ink-3">No companies with buying intent yet. They appear as evidence is collected.</CardBody>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader title="Top narrative" icon={<TrendingUp />} action={more("/app/narratives")} />
+          <CardBody>
+            {topNarr ? (
+              <Link href={`/app/narratives/${topNarr.id}`} className="block">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[15px] font-semibold">{topNarr.label}</span>
+                  <Velocity pct={topNarr.velocityPct} />
+                </div>
+                <div className="mt-1.5 flex items-center gap-2 text-[11.5px] text-ink-3">
+                  <Badge tone="info">{topNarr.status}</Badge>
+                  <span>
+                    <span className="num">{topNarr.volume7d}</span> posts this week · relevance <span className="num">{topNarr.relevance}</span>
                   </span>
-                  <span className="flex flex-col items-end gap-1">
-                    <VerdictBadge verdict={d.policyVerdict} />
-                    <span className="text-[10.5px] text-ink-4">{relTime(d.createdAt)}</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-            {!decisions.length && <li className="px-3.5 py-3 text-[12px] text-ink-3">No decisions yet — run an agent cycle.</li>}
-          </ul>
-        </Panel>
+                </div>
+                <div className="mt-4">
+                  <div className="label mb-1.5">Market volume · 14 days</div>
+                  <Sparkline values={daily} width={300} height={40} label="relevant posts" />
+                </div>
+              </Link>
+            ) : (
+              <p className="text-[12.5px] text-ink-3">No narratives yet — they form once enough related posts cluster together.</p>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader title="Top creator opportunity" icon={<Users />} action={more("/app/kols")} />
+          <CardBody>
+            {topKol ? (
+              <Link href={`/app/opportunities/${topKol.id}`} className="block">
+                <div className="text-[14px] font-semibold leading-snug">{topKol.title}</div>
+                <ul className="mt-2.5 space-y-1.5 text-[12px] leading-snug text-ink-2">
+                  {topKol.whyNow.slice(0, 3).map((w) => (
+                    <li key={w} className="flex gap-2">
+                      <span className="mt-[6px] size-1 shrink-0 rounded-full bg-ink-4" />
+                      {w}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex items-center justify-between">
+                  <Confidence value={topKol.confidence} />
+                  <span className="num text-[11.5px] text-ink-3">est. {fmtUsdc(topKol.estimatedCostMicro)}</span>
+                </div>
+              </Link>
+            ) : (
+              <p className="text-[12.5px] text-ink-3">No open creator opportunities.</p>
+            )}
+          </CardBody>
+        </Card>
       </div>
 
-      <Panel className="mt-3" title="Arc / Circle activity" right={<Link href="/app/activity" className="hover:text-ink">full trace →</Link>} pad={false}>
-        <ul>
-          {txs.map((t) => (
-            <li key={t.id} className="grid grid-cols-[110px_1fr_auto_auto] items-center gap-3 border-b border-line px-3.5 py-2 text-[12px] last:border-b-0">
-              <span className="num text-ink-3">{t.rail.replace(/_/g, " ")}</span>
-              <span className="truncate text-ink-2">
-                {t.kind.replace(/_/g, " ")} · {t.settlementId ? `settlement ${shortHash(t.settlementId, 4)}` : t.txHash ? shortHash(t.txHash) : "no on-chain reference"}
-              </span>
-              <span className="num">{fmtUsdc(t.amountMicro)}</span>
-              <span className="flex items-center gap-1.5">
-                {t.dataMode !== t.state && <ModeBadge mode={t.dataMode} />}
-                <TxState state={t.state} />
-              </span>
-            </li>
-          ))}
-          {!txs.length && <li className="px-3.5 py-3 text-[12px] text-ink-3">No payments yet.</li>}
-        </ul>
-      </Panel>
+      <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
+        <Card>
+          <CardHeader title="Experiment performance" description="Cost per qualified conversion, lower is better" action={more("/app/experiments", "Experiments")} />
+          <CardBody>
+            {sum?.findings.some((f) => f.cpaMicro != null) ? (
+              <BarList
+                format={(v) => fmtUsdc(v, { unit: false })}
+                rows={sum.findings.filter((f) => f.cpaMicro != null).map((f) => ({ label: f.label, value: f.cpaMicro!, sub: `${f.conversions} conv · ${f.verdict}`, tone: f.verdict === "STOP" || f.verdict === "REDUCE" ? "bad" : f.verdict === "SCALE" ? "good" : undefined }))}
+              />
+            ) : (
+              <p className="text-[12.5px] text-ink-3">No measured experiments yet.</p>
+            )}
+          </CardBody>
+          <CardFooter>From settled spend and referral-code attribution only.</CardFooter>
+        </Card>
+
+        <Card>
+          <CardHeader title="Recent agent decisions" action={more("/app/receipts", "Receipts")} />
+          {decisions.length ? (
+            <ul className="divide-y divide-line">
+              {decisions.map((d) => (
+                <li key={d.id}>
+                  <Link href={`/app/receipts/${d.id}`} className="grid grid-cols-[auto_1fr_auto] items-start gap-3 px-4 py-2.5 transition-colors hover:bg-surface-2">
+                    <span className="num pt-px text-[11px] text-ink-4">#{d.number}</span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2 text-[12px]">
+                        <span className="font-medium text-ink">{d.kind.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}</span>
+                        <span className="text-ink-4">·</span>
+                        <span className="text-ink-3">{d.agent}</span>
+                      </span>
+                      <span className="mt-0.5 line-clamp-1 block text-[12px] text-ink-3">{d.rationale}</span>
+                    </span>
+                    <span className="flex flex-col items-end gap-1">
+                      <VerdictBadge verdict={d.policyVerdict} />
+                      <span className="text-[10.5px] text-ink-4">{relTime(d.createdAt)}</span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <CardBody className="text-[12.5px] text-ink-3">No decisions yet — run a cycle to let the agents evaluate opportunities.</CardBody>
+          )}
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader title="Payments" description="x402 nanopayments and on-chain transfers on Arc" action={more("/app/activity", "Full trace")} />
+        {txs.length ? (
+          <ul className="divide-y divide-line">
+            {txs.map((t) => (
+              <li key={t.id} className="grid grid-cols-[120px_1fr_auto_auto] items-center gap-3 px-4 py-2.5 text-[12px]">
+                <span className="num text-ink-3">{t.rail.replace(/_/g, " ")}</span>
+                <span className="truncate text-ink-2">
+                  {t.kind.replace(/_/g, " ")} · {t.settlementId ? `settlement ${shortHash(t.settlementId, 4)}` : t.txHash ? shortHash(t.txHash) : "no on-chain reference"}
+                </span>
+                <span className="num">{fmtUsdc(t.amountMicro)}</span>
+                <span className="flex items-center gap-1.5">
+                  <ModeBadge mode={t.dataMode} />
+                  <TxStateBadge state={t.state} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <CardBody className="text-[12.5px] text-ink-3">No payments yet.</CardBody>
+        )}
+      </Card>
     </div>
   );
 }

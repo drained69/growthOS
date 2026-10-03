@@ -19,11 +19,14 @@ interface User {
 export const x: MarketProvider = {
   id: "x",
   name: "X",
-  status: () => {
-    const ok = !!process.env.X_BEARER_TOKEN;
-    return { id: "x", name: "X", available: ok, note: ok ? "X API v2 recent search" : "Set X_BEARER_TOKEN (X API plan with recent search)", requiresEnv: ["X_BEARER_TOKEN"] };
-  },
-  async search(query, { since, limit }) {
+  description: "Recent posts with engagement and author follower counts via X API v2 recent search.",
+  category: "social",
+  docsUrl: "https://developer.x.com/en/docs/x-api/tweets/search/introduction",
+  access: "official_api",
+  credentialFields: [{ key: "bearerToken", label: "Bearer token", secret: true, help: "Requires an X API plan that includes recent search." }],
+  envFallback: { bearerToken: "X_BEARER_TOKEN" },
+  isReady: (c) => !!c.bearerToken,
+  async search(query, { since, limit }, creds) {
     const params = new URLSearchParams({
       query: `${query} -is:retweet lang:en`,
       max_results: String(Math.max(10, Math.min(limit, 100))),
@@ -33,7 +36,7 @@ export const x: MarketProvider = {
       "user.fields": "username,name,public_metrics",
     });
     const data = await getJson<{ data?: Tweet[]; includes?: { users?: User[] } }>("x", `https://api.x.com/2/tweets/search/recent?${params}`, {
-      headers: { Authorization: `Bearer ${process.env.X_BEARER_TOKEN}` },
+      headers: { Authorization: `Bearer ${creds.bearerToken}` },
     });
     const users = new Map((data.includes?.users ?? []).map((u) => [u.id, u]));
     return (data.data ?? []).map((t): FetchedPost => {

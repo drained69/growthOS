@@ -12,13 +12,18 @@ interface HNHit {
   created_at: string;
   points: number | null;
   num_comments: number | null;
-  url: string | null;
 }
 
 export const hackernews: MarketProvider = {
   id: "hackernews",
   name: "Hacker News",
-  status: () => ({ id: "hackernews", name: "Hacker News", available: true, note: "Public Algolia HN Search API", requiresEnv: [] }),
+  description: "Stories and comments via the public Algolia HN Search API.",
+  category: "community",
+  docsUrl: "https://hn.algolia.com/api",
+  access: "public_api",
+  credentialFields: [],
+  envFallback: {},
+  isReady: () => true,
   async search(query, { since, limit }) {
     const ts = Math.floor(since.getTime() / 1000);
     const url = `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent(query)}&tags=(story,comment)&numericFilters=created_at_i>${ts}&hitsPerPage=${Math.min(limit, 50)}`;

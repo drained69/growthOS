@@ -1,4 +1,4 @@
-import { cx } from "@/components/ui";
+import { cn as cx } from "@/components/ui/cn";
 
 /**
  * Inline-SVG chart primitives. Marks follow the dataviz spec: thin marks, rounded data-ends

@@ -2,10 +2,10 @@ import { getJson } from "@/server/integrations/providers/http";
 import type { FetchedPost, MarketProvider } from "@/server/integrations/providers/types";
 
 /** GitHub REST search (issues/discussions + repositories). Works unauthenticated at low rate; GITHUB_TOKEN raises limits. */
-const headers = (): Record<string, string> => ({
+const headers = (token?: string): Record<string, string> => ({
   Accept: "application/vnd.github+json",
   "X-GitHub-Api-Version": "2022-11-28",
-  ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}),
+  ...(token ? { Authorization: `Bearer ${token}` } : {}),
 });
 
 interface Issue {
@@ -35,19 +35,19 @@ interface Repo {
 export const github: MarketProvider = {
   id: "github",
   name: "GitHub",
-  status: () => ({
-    id: "github",
-    name: "GitHub",
-    available: true,
-    note: process.env.GITHUB_TOKEN ? "GitHub REST search (authenticated)" : "GitHub REST search (unauthenticated, 10 req/min)",
-    requiresEnv: [],
-  }),
-  async search(query, { since, limit }) {
+  description: "Issues, discussions and repositories via the GitHub REST search API. Works without a token at a low rate limit.",
+  category: "code",
+  docsUrl: "https://docs.github.com/en/rest/search",
+  access: "official_api",
+  credentialFields: [{ key: "token", label: "Personal access token", secret: true, optional: true, placeholder: "github_pat_…", help: "Read-only public access is enough. Raises the rate limit from 10 to 30 searches/min." }],
+  envFallback: { token: "GITHUB_TOKEN" },
+  isReady: () => true,
+  async search(query, { since, limit }, creds) {
     const day = since.toISOString().slice(0, 10);
     const per = Math.min(Math.ceil(limit / 2), 30);
     const [issues, repos] = await Promise.all([
-      getJson<{ items: Issue[] }>("github", `https://api.github.com/search/issues?q=${encodeURIComponent(`${query} created:>${day}`)}&sort=created&order=desc&per_page=${per}`, { headers: headers() }),
-      getJson<{ items: Repo[] }>("github", `https://api.github.com/search/repositories?q=${encodeURIComponent(`${query} pushed:>${day}`)}&sort=updated&order=desc&per_page=${per}`, { headers: headers() }),
+      getJson<{ items: Issue[] }>("github", `https://api.github.com/search/issues?q=${encodeURIComponent(`${query} created:>${day}`)}&sort=created&order=desc&per_page=${per}`, { headers: headers(creds.token) }),
+      getJson<{ items: Repo[] }>("github", `https://api.github.com/search/repositories?q=${encodeURIComponent(`${query} pushed:>${day}`)}&sort=updated&order=desc&per_page=${per}`, { headers: headers(creds.token) }),
     ]);
     const fromIssues = issues.items.map(
       (i): FetchedPost => ({

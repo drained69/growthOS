@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { DB } from "@/server/db/client";
 import * as s from "@/server/db/schema";
-import { availableProviders, PROVIDERS } from "@/server/integrations/providers";
+import { readyProviders, listConnections } from "@/server/integrations/vault";
 import { ingestPosts } from "@/server/domain/intel/ingest";
 import { analyzeProject, type Logger, type AnalysisStats } from "@/server/domain/intel/analyze";
 import { daysAgo } from "@/lib/time";
@@ -19,15 +19,14 @@ export async function runDiscovery(db: DB, projectId: string, log: Logger): Prom
   const fetched: Record<string, number> = {};
   const errors: string[] = [];
 
-  for (const p of PROVIDERS) {
-    const st = p.status();
-    if (!st.available) log("discovery", `${st.name}: skipped — ${st.note}`);
+  for (const c of await listConnections(db, projectId)) {
+    if (!c.ready) log("discovery", `${c.provider.name}: skipped — ${c.source === "restricted" ? c.provider.restrictedReason : "not connected"}`);
   }
-  for (const provider of availableProviders()) {
+  for (const { provider, creds, source } of await readyProviders(db, projectId)) {
     let n = 0;
     for (const q of queries) {
       try {
-        const posts = await provider.search(q.includes(" ") ? `"${q}"` : q, { since: daysAgo(14), limit: 25 });
+        const posts = await provider.search(q.includes(" ") ? `"${q}"` : q, { since: daysAgo(14), limit: 25 }, creds);
         n += await ingestPosts(db, projectId, provider.id, posts, "LIVE", { keywords });
       } catch (e) {
         const msg = (e as Error).message;
@@ -37,7 +36,7 @@ export async function runDiscovery(db: DB, projectId: string, log: Logger): Prom
       }
     }
     fetched[provider.id] = n;
-    log("discovery", `${provider.name}: ${n} new post(s)`);
+    log("discovery", `${provider.name} (${source === "workspace" ? "workspace key" : source === "platform" ? "platform key" : "keyless"}): ${n} new post(s)`);
   }
   const stats = await analyzeProject(db, projectId, log);
   return { fetched, errors, stats };

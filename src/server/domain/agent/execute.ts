@@ -5,7 +5,8 @@ import * as s from "@/server/db/schema";
 import { audit } from "@/server/db/helpers";
 import { newId, sha256, canonicalJson } from "@/server/lib/ids";
 import { fmtUsdc, microToDecimal, toMicro } from "@/lib/money";
-import { ARC, CHAINS, txExplorerUrl, walletMode } from "@/server/integrations/circle/config";
+import { ARC, CHAINS, txExplorerUrl } from "@/server/integrations/circle/config";
+import { getWallet, walletIsLive } from "@/server/integrations/circle/wallets";
 import { appKitBridge, appKitSend } from "@/server/integrations/circle/appkit";
 import { getSettlement, resolveBatchTx } from "@/server/integrations/circle/gateway";
 import { quote } from "@/server/integrations/circle/x402";
@@ -125,7 +126,8 @@ export async function executeChainTx(db: DB, txId: string, log: Logger = () => {
   const [project] = await db.select().from(s.projects).where(eq(s.projects.id, tx.projectId));
   const amount = microToDecimal(tx.amountMicro);
 
-  if (walletMode() === "unconfigured") {
+  const wallet = await getWallet(db, tx.projectId);
+  if (!walletIsLive(wallet) || wallet!.frozen) {
     if (project.dataMode === "DEMO") {
       await transition(db, txId, "SIMULATED", { error: "No agent wallet configured — simulation only" }, "no wallet: SIMULATED");
       await finish(db, tx, "SIMULATED", null);
@@ -138,7 +140,7 @@ export async function executeChainTx(db: DB, txId: string, log: Logger = () => {
   }
 
   try {
-    const res = tx.kind === "bridge" ? await appKitBridge({ fromChain: tx.chain, toChain: tx.destChain!, amount }) : await appKitSend({ chain: tx.chain, to: tx.recipient!, amount });
+    const res = tx.kind === "bridge" ? await appKitBridge(wallet!, { fromChain: tx.chain, toChain: tx.destChain!, amount }) : await appKitSend(wallet!, { chain: tx.chain, to: tx.recipient!, amount });
     const state = res.state === "success" ? "SETTLED" : res.state === "error" ? "FAILED" : "SUBMITTED";
     await transition(db, txId, state, { txHash: res.txHash, explorerUrl: res.explorerUrl ?? (res.txHash ? txExplorerUrl(tx.chain, res.txHash) : null), error: res.state === "error" ? "App Kit reported error" : null }, `App Kit ${tx.kind}: ${res.steps.map((st) => `${st.name}=${st.state}`).join(", ")}`);
     await finish(db, tx, state, res.txHash);

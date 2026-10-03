@@ -20,7 +20,7 @@ It optimizes **verified growth per USDC spent**. It does not optimize followers,
 
 ## Contents
 
-[Problem](#problem) · [Solution](#solution) · [Why GrowthOS](#why-growthos) · [Architecture](#architecture) · [Agent loop](#agent-loop) · [Customer discovery](#customer-discovery) · [Narrative intelligence](#narrative-intelligence) · [KOL intelligence](#kol-intelligence) · [Growth missions](#growth-missions) · [Attribution](#attribution) · [Autonomous budget](#autonomous-budget) · [Policy engine](#policy-engine) · [Circle Agent Stack](#circle-agent-stack) · [Arc App Kit](#arc-app-kit) · [Security](#security) · [Setup](#setup) · [Environment variables](#environment-variables) · [Demo](#demo) · [Testnet instructions](#testnet-instructions) · [Verification status](#verification-status) · [Known limitations](#known-limitations) · [Roadmap](#roadmap)
+[Problem](#problem) · [Solution](#solution) · [Why GrowthOS](#why-growthos) · [Architecture](#architecture) · [Running it as a product](#running-it-as-a-product) · [Agent loop](#agent-loop) · [Customer discovery](#customer-discovery) · [Narrative intelligence](#narrative-intelligence) · [KOL intelligence](#kol-intelligence) · [Growth missions](#growth-missions) · [Attribution](#attribution) · [Autonomous budget](#autonomous-budget) · [Policy engine](#policy-engine) · [Circle Agent Stack](#circle-agent-stack) · [Arc App Kit](#arc-app-kit) · [Security](#security) · [Setup](#setup) · [Environment variables](#environment-variables) · [Demo](#demo) · [Testnet instructions](#testnet-instructions) · [Verification status](#verification-status) · [Known limitations](#known-limitations) · [Roadmap](#roadmap)
 
 ---
 
@@ -84,17 +84,38 @@ flowchart LR
 **Stack:** Next.js 15 (App Router, server components and server actions), TypeScript, Tailwind v4, Drizzle ORM on Postgres, Zod, viem, Circle SDKs. The database is embedded **PGlite** by default (zero setup); set `DATABASE_URL` to use a real Postgres server. A separate Express process (`services/signals-api`) is an x402 seller paywalled with Circle Gateway.
 
 ```
-src/lib/
-  agent/       actions.ts (Zod) · policy.ts · ledger.ts (state machine) · decisions.ts (receipts)
-               information-value.ts · purchase.ts (x402) · execute.ts (send/bridge/approvals/settlement) · operator.ts
-  intel/       product-analyst.ts · crawl.ts · signals.ts · analyze.ts · narratives.ts · mentions.ts · discovery.ts
-  scoring/     intent.ts (customers) · kol.ts
-  growth/      experiments.ts (strategist) · attribution.ts · learning.ts · learning-run.ts · kol-brief.ts · brief.ts · graph.ts
-  payments/    config.ts · signer.ts · x402.ts · gateway.ts · marketplace.ts · appkit.ts · wallet-balance.ts
-  providers/   x · github · reddit · youtube · hackernews · rss · (tiktok/discord/telegram: declared, unavailable)
-  db/          schema.ts (37 tables) · client.ts · helpers.ts
-  demo/        seed.ts · script.ts · enrichment.ts
-services/signals-api/server.ts   x402 seller (createGatewayMiddleware)
+src/
+  app/                         routes only — pages, layouts, API handlers (thin; no business logic)
+    (marketing)/  (auth)/login · signup   invite/[token]   onboarding/   app/*   api/*
+  components/
+    ui/                        design system: Button, Card, Badge, DataTable, Dialog, Menu, Toast, form fields…
+    layout/                    app shell: sidebar, topbar, ⌘K command palette, run-agent button
+    features/                  feature components (intel, wallet, approvals, integrations, team, settings…)
+    charts/                    SVG charts (sparkline, stacked bar, goal progress, bar list)
+  lib/                         isomorphic helpers (money, time, shell types)
+  server/                      server-only
+    actions/                   server actions, one module per area; each runs guard(permission) first
+    auth/                      sessions, passwords, roles & permissions (access.ts), current user/workspace
+    domain/
+      agent/                   actions.ts (Zod) · policy.ts · ledger.ts (state machine) · decisions.ts (receipts)
+                               information-value.ts · purchase.ts (x402) · execute.ts · operator.ts
+      intel/                   product-analyst · crawl · signals · analyze · narratives · mentions · discovery
+      scoring/                 intent.ts (customers) · kol.ts
+      growth/                  experiments · attribution · learning · kol-brief · brief · graph
+      workspace/               members.ts (memberships, invites, roles)
+    integrations/
+      circle/                  config · client · wallets (per-workspace) · signer · x402 · gateway · marketplace · appkit
+      providers/               x · github · reddit · youtube · hackernews · rss · (tiktok/discord/telegram: unavailable)
+      vault.ts                 encrypted per-workspace provider credentials
+      llm/                     optional Claude client
+    jobs/                      durable queue · scheduler (autopilot) · handlers · worker
+    queries/                   read models for pages (missions, activity, metrics, shell)
+    security/                  HMAC, rate limits, AES-256-GCM secrets
+    db/                        schema.ts · client.ts (PGlite or Postgres) · helpers.ts
+    demo/                      seed · guided script · demo enrichment fixtures
+  instrumentation.ts           starts the in-process job worker
+services/signals-api/server.ts x402 seller (createGatewayMiddleware)
+drizzle/                       SQL migrations (applied automatically on boot)
 ```
 
 **Logical agents** (deterministic code unless noted):
@@ -115,9 +136,24 @@ An LLM never sets a score, never computes attribution, and never triggers a paym
 
 ---
 
+## Running it as a product
+
+GrowthOS is multi-tenant. Everything below is per **workspace** (a product being grown).
+
+| Capability | How it works |
+| --- | --- |
+| **Accounts & teams** | Email + password accounts. Workspaces have members with roles: **Owner**, **Admin**, **Member**, **Viewer**. Permissions (`src/server/auth/access.ts`) are checked in every server action and page: e.g. only Owner/Admin can change the spend policy or wallet, Members can operate the agent and approve spend, Viewers are read-only. Invites are single-use links (the token is stored hashed, expires in 7 days, and must be accepted by the invited email). |
+| **Integrations** | Each workspace stores its own provider credentials (X, Reddit, YouTube, GitHub, RSS) under **Integrations**, encrypted at rest with AES-256-GCM (`ENCRYPTION_KEY`). Secrets are write-only in the UI (only a hint is shown). Resolution order: workspace key → platform default from env → keyless provider. Credentials can be tested in place. |
+| **Agent wallet** | One wallet per workspace. With Circle custody, **Create agent wallet** provisions a dedicated Circle developer-controlled EOA on `ARC-TESTNET` for that workspace; an existing Circle wallet can also be attached by id. USDC is moved into Circle Gateway from the Wallet page (approve + deposit run as a background job). |
+| **Autopilot** | Workspaces choose a cadence (off / hourly / every 6h / daily). A durable job queue in Postgres (`FOR UPDATE SKIP LOCKED`, leases, retries with backoff, dedupe keys) runs operator cycles, settlement polling and Gateway deposits. The worker starts inside the web server; for multi-instance deployments run `npm run worker` separately, or call `POST /api/cron/cycle` from an external scheduler. Every run and its log is visible under **Agent runs**. |
+| **Inbound events** | Conversion events are posted to `/api/events`, HMAC-signed with the workspace's webhook secret (rotated from Integrations; shown once). |
+| **Demo** | **See it work** creates a private guest account with its own demo workspace, labelled `DEMO` everywhere. Real workspaces are `LIVE` and never mix with demo data or metrics. |
+
+---
+
 ## Agent loop
 
-One operator cycle (`Run agent cycle`, `POST /api/cron/cycle`, or `src/lib/agent/operator.ts`):
+One operator cycle (**Run cycle**, autopilot, `POST /api/cron/cycle`; code in `src/server/domain/agent/operator.ts`), executed by the job worker:
 
 1. **Discover / understand.** Query available providers for the product's search terms, store posts (`LIVE`), and re-run analysis.
 2. **Refresh the catalog** from Circle's Agent Marketplace and the bundled seller; poll in-flight settlements.
@@ -128,9 +164,9 @@ One operator cycle (`Run agent cycle`, `POST /api/cron/cycle`, or `src/lib/agent
 
 ## Customer discovery
 
-`src/lib/intel/signals.ts` classifies posts with auditable regex rules into intent signals: recommendation requests, competitor usage, migrations, initiatives, launches, complaints, hiring, funding, technology adoption, GitHub activity and questions. Organizations are attributed only when the source states it (an org-owned GitHub repo, a "Show HN: X" launch). Nothing is guessed from a name.
+`src/server/domain/intel/signals.ts` classifies posts with auditable regex rules into intent signals: recommendation requests, competitor usage, migrations, initiatives, launches, complaints, hiring, funding, technology adoption, GitHub activity and questions. Organizations are attributed only when the source states it (an org-owned GitHub repo, a "Show HN: X" launch). Nothing is guessed from a name.
 
-**Scoring** (`src/lib/scoring/intent.ts`), each component 0–100 with its reasons:
+**Scoring** (`src/server/domain/scoring/intent.ts`), each component 0–100 with its reasons:
 
 | Component | Weight | How |
 | --- | --- | --- |
@@ -144,13 +180,13 @@ One operator cycle (`Run agent cycle`, `POST /api/cron/cycle`, or `src/lib/agent
 
 ## Narrative intelligence
 
-`src/lib/intel/narratives.ts`: candidate terms (product keywords plus frequent bigrams) map to post sets. Terms whose post sets are ≥75% contained in a larger theme merge into it. Each cluster gets 7-day volume, prior-7-day volume, velocity, relevance (overlap with the product vocabulary) and controversy, and a lifecycle status: `EMERGING`, `ACCELERATING`, `PEAKING`, `DECLINING`, `CONTROVERSIAL`, `UNDEREXPLORED` or `STABLE`. Each narrative shows its important voices, representative evidence, related companies and competitors involved.
+`src/server/domain/intel/narratives.ts`: candidate terms (product keywords plus frequent bigrams) map to post sets. Terms whose post sets are ≥75% contained in a larger theme merge into it. Each cluster gets 7-day volume, prior-7-day volume, velocity, relevance (overlap with the product vocabulary) and controversy, and a lifecycle status: `EMERGING`, `ACCELERATING`, `PEAKING`, `DECLINING`, `CONTROVERSIAL`, `UNDEREXPLORED` or `STABLE`. Each narrative shows its important voices, representative evidence, related companies and competitors involved.
 
 **Product mentions** (`mentions.ts`) go beyond sentiment. They extract feature requests, complaints, praise, competitor comparisons, questions, purchase intent, churn risk, confusion and integration requests, and cluster recurring issues week over week. An issue that is frequent and growing fast is flagged as **blocking acquisition**, and the operator holds paid acquisition until it's addressed.
 
 ## KOL intelligence
 
-`src/lib/scoring/kol.ts` scores eight components: audience fit, topic authority, recent relevance, engagement quality (discussion ratio, not likes), narrative fit, historical product fit, authenticity signals (inflated reach, promo and speculation patterns) and campaign fit. **Follower count is not a component.** It enters only log-damped (at most +10) into topic authority. In the demo, a deeply technical engineer ranks above a 450K-follower account whose audience engagement looks inflated.
+`src/server/domain/scoring/kol.ts` scores eight components: audience fit, topic authority, recent relevance, engagement quality (discussion ratio, not likes), narrative fit, historical product fit, authenticity signals (inflated reach, promo and speculation patterns) and campaign fit. **Follower count is not a component.** It enters only log-damped (at most +10) into topic authority. In the demo, a deeply technical engineer ranks above a 450K-follower account whose audience engagement looks inflated.
 
 The **creator brief** (`kol-brief.ts`) covers objective, why this creator, why now, audience, current narrative, core idea, product proof, a demo worth showing, angles, **claims with sources**, things to avoid, CTA, tracking link and creator freedom. Optional X / thread / video / Reels / YouTube drafts are marked as suggestions for the creator to rewrite in their own voice. GrowthOS never posts as anyone.
 
@@ -174,7 +210,7 @@ The budget view shows total, spent (settled plus in flight), committed (unspent 
 
 ## Policy engine
 
-`src/lib/agent/policy.ts` is a pure function of (action, policy, state). Free-form text can't reach it: actions are parsed by Zod first (`actions.ts`).
+`src/server/domain/agent/policy.ts` is a pure function of (action, policy, state). Free-form text can't reach it: actions are parsed by Zod first (`actions.ts`).
 
 | Rule | Severity |
 | --- | --- |
@@ -198,16 +234,16 @@ All APIs below were verified against the published SDK packages: their READMEs a
 
 ### Agent Wallets
 
-`src/lib/payments/signer.ts` supports two custody modes. **The AI never receives key material in either.**
+`src/server/integrations/circle/wallets.ts` and `signer.ts` support two custody modes. **The AI never receives key material in either.**
 
-- **Circle developer-controlled wallet (recommended).** An EOA on `ARC-TESTNET`, created by `npm run wallet:setup`. Keys are custodied by Circle. GrowthOS holds only the API key and entity secret, server-side, and signs x402 authorizations through `client.signTypedData({ walletId, data })`.
-- **Server-side testnet key.** The organizer example's model (`AGENT_PRIVATE_KEY`). Refused unless `GROWTHOS_NETWORK=testnet`. It is only reachable through the policy engine.
+- **Circle developer-controlled wallets (recommended).** Each workspace gets its own wallet set and EOA on `ARC-TESTNET` (`createWalletSet` + `createWallets({ accountType: "EOA" })`), provisioned from the Wallet page. Keys are custodied by Circle. GrowthOS holds only the platform API key and entity secret, server-side, and signs x402 authorizations through `client.signTypedData({ walletId, data })`. Gateway deposits run as `createContractExecutionTransaction` calls (`approve`, then `deposit`).
+- **Server-side testnet key.** The organizer example's model (`AGENT_PRIVATE_KEY`), for local development. Refused unless `GROWTHOS_NETWORK=testnet`. It is only reachable through the policy engine.
 
 The founder kill switch (Wallet → *Freeze all spending*) makes every spend fail `WALLET_NOT_FROZEN`.
 
 ### x402 autonomous purchasing
 
-`src/lib/agent/purchase.ts` + `src/lib/payments/x402.ts`:
+`src/server/domain/agent/purchase.ts` + `src/server/integrations/circle/x402.ts`:
 
 ```
 need identified (confidence < 80%)
@@ -230,11 +266,11 @@ The buyer mirrors `GatewayClient.pay()` from `@circle-fin/x402-batching`, split 
 
 Sub-cent purchases are signed authorizations, not one on-chain transaction each. Circle Gateway batches them. `refreshSettlements` follows each settlement through `GET /v1/x402/transfers/:id` (`received → batched → confirmed/completed`) and then resolves the Arc `submitBatch` transaction. Settlement UUIDs aren't on-chain, so the batch is matched by timestamp, the same heuristic as the organizer's `decode-batch.ts` (labelled as such). The **Arc / Circle Activity** page shows request, price, authorization, settlement ID, status, and the Arc batch tx with an explorer link.
 
-USDC in the wallet is not spendable by x402. It must be deposited into the `GatewayWallet` (`0x0077777d7EBA4688BDeF3E311b846F25870A19B9` on Arc Testnet) first: `npm run wallet:deposit -- 1`.
+USDC in the wallet is not spendable by x402. It must be deposited into the `GatewayWallet` (`0x0077777d7EBA4688BDeF3E311b846F25870A19B9` on Arc Testnet) first: Wallet → **Deposit to Gateway** (runs as a background job and records both transaction hashes).
 
 ### Agent Marketplace
 
-`src/lib/payments/marketplace.ts` queries Circle's keyless Discovery API, `GET https://api.circle.com/v2/x402/discovery/resources?query=&category=&limit=&siwx=false`, the endpoint the official `circle services search` CLI uses. It caches vendors and services, infers capabilities (`company_enrichment`, `creator_audience`, `narrative_pulse`, `research`), and prefers services payable on Arc via Gateway batching. `APPROVED_SERVICES` controls which hosts may be bought from autonomously.
+`src/server/integrations/circle/marketplace.ts` queries Circle's keyless Discovery API, `GET https://api.circle.com/v2/x402/discovery/resources?query=&category=&limit=&siwx=false`, the endpoint the official `circle services search` CLI uses. It caches vendors and services, infers capabilities (`company_enrichment`, `creator_audience`, `narrative_pulse`, `research`), and prefers services payable on Arc via Gateway batching. `APPROVED_SERVICES` controls which hosts may be bought from autonomously.
 
 ### Bundled x402 seller
 
@@ -248,7 +284,7 @@ The fictional demo entities get fixtures tagged `dataMode: "DEMO"`.
 
 ## Arc App Kit
 
-Used where it solves a GrowthOS problem (`src/lib/payments/appkit.ts`):
+Used where it solves a GrowthOS problem (`src/server/integrations/circle/appkit.ts`):
 
 | Capability | Used for |
 | --- | --- |
@@ -271,7 +307,8 @@ The adapter is `@circle-fin/adapter-circle-wallets` for Circle custody, or `@cir
 - **Schema validation.** Zod on every financial action, form and webhook body.
 - **Idempotency and duplicate-payment protection.** Unique idempotency keys on transactions and events, plus a conditional `AUTHORIZED → EXECUTING` lock.
 - **Transaction state machine** with legal transitions only, and a full trail in `transaction_events`.
-- **Authorization.** Signed httpOnly session cookies (HMAC-SHA256, `SESSION_SECRET`), scrypt password hashing, and project ownership checks on every action and page.
+- **Authorization.** Signed httpOnly session cookies (HMAC-SHA256, `SESSION_SECRET`), scrypt password hashing, and workspace membership + role permission checks on every action and page.
+- **Secrets at rest.** Provider credentials are AES-256-GCM encrypted with the workspace and provider bound as additional authenticated data; they are never sent back to the browser. Invite tokens are stored as sha256 hashes.
 - **Rate limits** on login, signup, demo entry, agent cycles, redirects and event ingestion.
 - **Webhook verification.** HMAC with a timestamp window for conversion events; ECDSA verification against Circle's published public key for Circle notifications (`/api/webhooks/circle`).
 - **Audit logs** for logins, policy changes, approvals, freezes and every agent decision.
@@ -295,13 +332,13 @@ Open http://localhost:3000 and click **SEE IT WORK**. No keys needed.
 | Script | What it does |
 | --- | --- |
 | `npm run dev` | Next.js and the bundled x402 seller |
-| `npm test` | 30 unit tests: policy, scoring, narratives, learning, security, offline x402 round-trip |
+| `npm run worker` | Standalone job worker (use with `GROWTHOS_WORKER=off` on web instances) |
+| `npm test` | Unit tests: policy, scoring, narratives, learning, security, offline x402 round-trip |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run build && npm start` | Production (set `SESSION_SECRET`) |
+| `npm run build && npm start` | Production (set `SESSION_SECRET` and `ENCRYPTION_KEY`) |
 | `npm run db:seed` | Reset and seed the demo project |
 | `npm run demo:run` | Run the 8-step demo headlessly |
-| `npm run wallet:setup` | Create a Circle wallet on Arc Testnet (`-- --entity-secret` first time, `-- --local` for a testnet key) |
-| `npm run wallet:deposit -- 1` | Deposit 1 USDC into Circle Gateway for x402 |
+| `npm run wallet:setup` | Platform custody setup: `-- --entity-secret` registers a Circle entity secret, `-- --local` prints a testnet key |
 | `npm run db:generate` | Generate a migration after schema changes |
 
 > PGlite is single-process. Stop the dev server before running `db:seed` / `demo:run` against the same `.data/pglite`, or point `PGLITE_DIR` elsewhere. Use `DATABASE_URL` (Postgres) for multi-process deployments.
@@ -313,15 +350,17 @@ See [`.env.example`](.env.example). In summary:
 | Variable | Purpose |
 | --- | --- |
 | `SESSION_SECRET` | Session signing (required in production) |
+| `ENCRYPTION_KEY` | AES-256-GCM key for integration credentials (required in production) |
+| `GROWTHOS_WORKER`, `WORKER_INTERVAL_MS` | In-process job worker on/off and poll interval |
 | `DATABASE_URL` | Postgres; empty → embedded PGlite |
-| `CIRCLE_API_KEY`, `CIRCLE_ENTITY_SECRET`, `CIRCLE_WALLET_ID`, `CIRCLE_WALLET_ADDRESS` | Circle developer-controlled agent wallet |
+| `CIRCLE_API_KEY`, `CIRCLE_ENTITY_SECRET` | Circle custody for per-workspace agent wallets |
 | `AGENT_PRIVATE_KEY`, `GROWTHOS_NETWORK=testnet` | Alternative: server-side testnet key |
 | `SIGNALS_SELLER_ADDRESS`, `SIGNALS_API_URL` | Bundled x402 seller |
 | `DEMO_PAYOUT_ADDRESS` | Where demo creator payouts go on testnet |
 | `ONRAMP_API_KEY` | Arc Onramp (optional) |
 | `ANTHROPIC_API_KEY` | Claude for product reading and drafts (optional) |
-| `GITHUB_TOKEN`, `X_BEARER_TOKEN`, `REDDIT_CLIENT_ID/SECRET`, `YOUTUBE_API_KEY`, `RSS_FEEDS` | Market data providers |
-| `CRON_SECRET` | Scheduled operator endpoint |
+| `GITHUB_TOKEN`, `X_BEARER_TOKEN`, `REDDIT_CLIENT_ID/SECRET`, `YOUTUBE_API_KEY`, `RSS_FEEDS` | Platform-default market data credentials (workspaces can bring their own) |
+| `CRON_SECRET` | External scheduler endpoint (`/api/cron/cycle`) |
 
 ## Demo
 
@@ -344,9 +383,9 @@ Without a wallet, steps 2 and 6 are recorded as **SIMULATED**: the full decision
 
 1. Create a Circle developer account and a **test** API key at console.circle.com and set `CIRCLE_API_KEY`.
 2. `npm run wallet:setup -- --entity-secret` → set `CIRCLE_ENTITY_SECRET` (back up the recovery file).
-3. `npm run wallet:setup` → set `CIRCLE_WALLET_ID` and `CIRCLE_WALLET_ADDRESS`. (Alternatively `npm run wallet:setup -- --local` → `AGENT_PRIVATE_KEY`.)
-4. Fund the address with Arc Testnet USDC at https://faucet.circle.com. On Arc, USDC is also the gas token.
-5. `npm run wallet:deposit -- 1` deposits into Gateway. Arc credits deposits in about a second.
+3. Sign up, create a workspace, and open **Wallet → Create agent wallet**. GrowthOS provisions a Circle wallet for that workspace. (For local development, `npm run wallet:setup -- --local` → `AGENT_PRIVATE_KEY` instead.)
+4. Fund the wallet address with Arc Testnet USDC at https://faucet.circle.com. On Arc, USDC is also the gas token.
+5. **Wallet → Deposit to Gateway** moves USDC into Gateway for x402. Arc credits deposits in about a second.
 6. Set `SIGNALS_SELLER_ADDRESS` to an Arc Testnet address you control (it receives the x402 payments), and optionally `DEMO_PAYOUT_ADDRESS`.
 7. `npm run dev`, enter the demo, **Reset demo**, then run the loop. Purchases show `TESTNET` with a Circle settlement ID. Use **Refresh settlements** on the Activity page to follow them to the Arc batch tx (a batch can take around 10 minutes on testnet).
 
@@ -354,7 +393,7 @@ Without a wallet, steps 2 and 6 are recorded as **SIMULATED**: the full decision
 
 What was verified in the build environment:
 
-- `npm test`: 30 tests pass. They cover policy verdicts (allow / approval / deny, deny-after-approval), schema rejection of free-form and malformed actions, scoring, narrative lifecycle, issue gating, learning and reallocation on the spec's KOL A / KOL B / content example, HMAC, the state machine, rate limits, and an **offline x402 round-trip**. In that test, Circle's `BatchEvmScheme` signs against a mock seller using the exact `PAYMENT-REQUIRED` / `Payment-Signature` / `PAYMENT-RESPONSE` wire format, the EIP-712 signer is recovered, and over-price payments are refused.
+- `npm test`: all tests pass. They also cover the job queue (claiming, dedupe, retries and leases on an in-memory Postgres). They cover policy verdicts (allow / approval / deny, deny-after-approval), schema rejection of free-form and malformed actions, scoring, narrative lifecycle, issue gating, learning and reallocation on the spec's KOL A / KOL B / content example, HMAC, the state machine, rate limits, and an **offline x402 round-trip**. In that test, Circle's `BatchEvmScheme` signs against a mock seller using the exact `PAYMENT-REQUIRED` / `Payment-Signature` / `PAYMENT-RESPONSE` wire format, the EIP-712 signer is recovered, and over-price payments are refused.
 - `npm run typecheck` and `npm run build` are clean. The production server was smoke-tested.
 - The full demo loop, onboarding, signed event ingestion (valid / replay / tampered / stale) and tracked redirects were exercised in a real browser and with HTTP requests.
 
@@ -367,7 +406,8 @@ What was verified in the build environment:
 - **Entity resolution is conservative.** Companies come from explicit attribution (GitHub orgs, "Show HN"). Cross-platform creator identity is matched by handle and flagged *unverified*.
 - **Heuristic product analysis without Claude** leaves competitors and use cases for the founder to fill in, by design.
 - **Creator audience composition** has no permitted public source; GrowthOS reports `available: false` instead of estimating.
-- **PGlite is single-process.** Use Postgres (`DATABASE_URL`) for multi-instance deployments. The in-memory rate limiter is per-instance too.
+- **PGlite is single-process.** Use Postgres (`DATABASE_URL`) for multi-instance deployments and a separate `npm run worker`. The in-memory rate limiter is per-instance.
+- **No outbound email.** Invites produce a one-time link for the inviter to share.
 - **Batch-tx resolution** for x402 settlements is a timestamp heuristic, as in the organizer's example.
 - **Earn is recommendation-only. Borrow is not built.**
 

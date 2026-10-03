@@ -3,7 +3,7 @@ import type { DB } from "@/server/db/client";
 import * as s from "@/server/db/schema";
 import { newId } from "@/server/lib/ids";
 import { startOfUtcDay } from "@/lib/time";
-import { walletMode } from "@/server/integrations/circle/config";
+import { walletIsLive } from "@/server/integrations/circle/wallets";
 import type { PolicyConfig, PolicyState } from "@/server/domain/agent/policy";
 
 /**
@@ -118,7 +118,7 @@ export async function loadPolicyState(db: DB, opts: { projectId: string; mission
   const [mission] = await db.select().from(s.missions).where(eq(s.missions.id, opts.missionId));
   const [project] = await db.select().from(s.projects).where(eq(s.projects.id, opts.projectId));
   const [alloc] = await db.select().from(s.missionBudgets).where(and(eq(s.missionBudgets.missionId, opts.missionId), eq(s.missionBudgets.category, opts.category)));
-  const configured = walletMode() !== "unconfigured";
+  const configured = walletIsLive(wallet);
   const simulation = !configured && project?.dataMode === "DEMO";
   const ms = await missionSpend(db, opts.missionId);
   // When re-evaluating an existing transaction (e.g. at approval), don't count it against itself.

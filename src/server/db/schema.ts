@@ -31,6 +31,9 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
+  /** Guest accounts are created for anonymous demo visitors and expire. */
+  isGuest: boolean("is_guest").notNull().default(false),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
 
@@ -49,9 +52,90 @@ export const projects = pgTable(
     webhookSecret: text("webhook_secret").notNull(),
     onboardingStep: integer("onboarding_step").notNull().default(1),
     dataMode: dataMode("data_mode").notNull().default("LIVE"),
+    /** Autopilot cadence for the operator cycle: off | hourly | every_6h | daily */
+    autopilot: text("autopilot").notNull().default("off"),
+    lastCycleAt: timestamp("last_cycle_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [index("projects_owner_idx").on(t.ownerId)],
+);
+
+/** Workspace membership. Roles: owner > admin > member > viewer. */
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: id(),
+    projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("memberships_project_user_uq").on(t.projectId, t.userId), index("memberships_user_idx").on(t.userId)],
+);
+
+export const invites = pgTable(
+  "invites",
+  {
+    id: id(),
+    projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").notNull(),
+    /** sha256 of the invite token; the token itself is only shown once. */
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("invites_project_idx").on(t.projectId)],
+);
+
+/** Per-workspace credentials for data providers, encrypted at rest (AES-256-GCM). */
+export const integrations = pgTable(
+  "integrations",
+  {
+    id: id(),
+    projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    /** base64(iv | tag | ciphertext) of a JSON object of credential fields. */
+    secret: text("secret").notNull(),
+    /** Non-secret hint for the UI, e.g. "••••a1f3". */
+    hint: text("hint"),
+    config: jsonb("config").$type<Record<string, string>>().notNull().default({}),
+    status: text("status").notNull().default("connected"), // connected | error
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("integrations_project_provider_uq").on(t.projectId, t.provider)],
+);
+
+/** Durable background jobs (operator cycles, settlement polling, deposits). Leased by the worker. */
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: id(),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // cycle | settlements | gateway_deposit | cleanup
+    status: text("status").notNull().default("queued"), // queued | running | done | failed
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    runAt: timestamp("run_at", { withTimezone: true }).notNull().defaultNow(),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(3),
+    lockedBy: text("locked_by"),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    lastError: text("last_error"),
+    /** Prevents duplicate scheduling of the same logical job. */
+    dedupeKey: text("dedupe_key").unique(),
+    trigger: text("trigger").notNull().default("system"), // system | user | schedule
+    createdAt: createdAt(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("jobs_due_idx").on(t.status, t.runAt), index("jobs_project_idx").on(t.projectId, t.createdAt)],
 );
 
 // ───────────────────────────── product intelligence ─────────────────────────────
@@ -546,6 +630,7 @@ export const wallets = pgTable("wallets", {
   provider: text("provider").notNull(), // circle_dcw | local_testnet | unconfigured
   address: text("address"),
   circleWalletId: text("circle_wallet_id"),
+  circleWalletSetId: text("circle_wallet_set_id"),
   blockchain: text("blockchain").notNull().default("ARC-TESTNET"),
   status: text("status").notNull(), // ACTIVE | NOT_CONFIGURED | PAUSED
   /** Founder kill switch: when true every spend is denied. */

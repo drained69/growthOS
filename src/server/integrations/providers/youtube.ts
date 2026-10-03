@@ -10,12 +10,15 @@ interface SearchItem {
 export const youtube: MarketProvider = {
   id: "youtube",
   name: "YouTube",
-  status: () => {
-    const ok = !!process.env.YOUTUBE_API_KEY;
-    return { id: "youtube", name: "YouTube", available: ok, note: ok ? "YouTube Data API v3" : "Set YOUTUBE_API_KEY", requiresEnv: ["YOUTUBE_API_KEY"] };
-  },
-  async search(query, { since, limit }) {
-    const key = process.env.YOUTUBE_API_KEY!;
+  description: "Videos, view/like/comment counts and channel subscribers via the YouTube Data API v3.",
+  category: "video",
+  docsUrl: "https://developers.google.com/youtube/v3",
+  access: "official_api",
+  credentialFields: [{ key: "apiKey", label: "API key", secret: true, placeholder: "AIza…", help: "Google Cloud API key with YouTube Data API v3 enabled." }],
+  envFallback: { apiKey: "YOUTUBE_API_KEY" },
+  isReady: (c) => !!c.apiKey,
+  async search(query, { since, limit }, creds) {
+    const key = creds.apiKey;
     const s = await getJson<{ items: SearchItem[] }>(
       "youtube",
       `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&order=date&q=${encodeURIComponent(query)}&publishedAfter=${since.toISOString()}&maxResults=${Math.min(limit, 25)}&key=${key}`,

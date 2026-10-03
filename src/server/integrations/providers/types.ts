@@ -1,14 +1,5 @@
 export type ProviderId = "x" | "github" | "reddit" | "youtube" | "hackernews" | "rss" | "tiktok" | "discord" | "telegram";
 
-export interface ProviderStatus {
-  id: ProviderId;
-  name: string;
-  available: boolean;
-  /** Why it is unavailable, or what access it uses. */
-  note: string;
-  requiresEnv: string[];
-}
-
 export interface FetchedPost {
   externalId: string;
   url: string;
@@ -29,11 +20,36 @@ export interface SearchOptions {
   limit: number;
 }
 
+export type Credentials = Record<string, string>;
+
+export interface CredentialField {
+  key: string;
+  label: string;
+  secret: boolean;
+  placeholder?: string;
+  optional?: boolean;
+  help?: string;
+}
+
+/**
+ * A market-data source. Credentials come from the workspace vault (encrypted) or, failing
+ * that, platform-wide env defaults. Restricted providers declare why they are not usable
+ * and never return data.
+ */
 export interface MarketProvider {
   id: ProviderId;
   name: string;
-  status(): ProviderStatus;
-  search(query: string, opts: SearchOptions): Promise<FetchedPost[]>;
+  description: string;
+  category: "social" | "code" | "community" | "video" | "news";
+  docsUrl: string;
+  access: "official_api" | "public_api" | "restricted";
+  restrictedReason?: string;
+  credentialFields: CredentialField[];
+  /** Field key → env var providing a platform default. */
+  envFallback: Record<string, string>;
+  /** Whether the provider can run with these credentials (keyless providers: always). */
+  isReady(creds: Credentials): boolean;
+  search(query: string, opts: SearchOptions, creds: Credentials): Promise<FetchedPost[]>;
 }
 
 export class ProviderError extends Error {

@@ -5,13 +5,13 @@ import { youtube } from "@/server/integrations/providers/youtube";
 import { x } from "@/server/integrations/providers/x";
 import { rss } from "@/server/integrations/providers/rss";
 import { tiktok, discord, telegram } from "@/server/integrations/providers/unavailable";
-import type { MarketProvider } from "@/server/integrations/providers/types";
+import type { MarketProvider, ProviderId } from "@/server/integrations/providers/types";
 
-/** Priority order: X, GitHub, Reddit, YouTube, news/blogs — then declared-only sources. */
+/** Priority order: X, GitHub, Reddit, YouTube, news/blogs — then restricted sources. */
 export const PROVIDERS: MarketProvider[] = [x, github, reddit, youtube, hackernews, rss, tiktok, discord, telegram];
 
-export function availableProviders(): MarketProvider[] {
-  return PROVIDERS.filter((p) => p.status().available);
+export function providerById(id: string): MarketProvider | undefined {
+  return PROVIDERS.find((p) => p.id === (id as ProviderId));
 }
 
 export * from "@/server/integrations/providers/types";

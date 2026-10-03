@@ -2,19 +2,12 @@ import type { MarketProvider, ProviderId } from "@/server/integrations/providers
 
 /**
  * Declared provider interfaces for platforms where GrowthOS has no reliable, permitted
- * read access in this build. They report unavailable — they never return made-up data.
+ * read access. They are listed so the gap is visible — they never return made-up data.
  */
-function declared(id: ProviderId, name: string, note: string, requiresEnv: string[]): MarketProvider {
-  return {
-    id,
-    name,
-    status: () => ({ id, name, available: false, note, requiresEnv }),
-    async search() {
-      return [];
-    },
-  };
+function restricted(id: ProviderId, name: string, category: MarketProvider["category"], docsUrl: string, reason: string): MarketProvider {
+  return { id, name, description: reason, category, docsUrl, access: "restricted", restrictedReason: reason, credentialFields: [], envFallback: {}, isReady: () => false, search: async () => [] };
 }
 
-export const tiktok = declared("tiktok", "TikTok", "TikTok Research API access is limited to approved researchers; not connected. No scraping.", ["TIKTOK_RESEARCH_CLIENT_KEY"]);
-export const discord = declared("discord", "Discord", "Requires a bot invited into specific servers by their admins; only those channels may be read. Not connected.", ["DISCORD_BOT_TOKEN"]);
-export const telegram = declared("telegram", "Telegram", "Bot API only sees chats the bot was added to. Not connected.", ["TELEGRAM_BOT_TOKEN"]);
+export const tiktok = restricted("tiktok", "TikTok", "video", "https://developers.tiktok.com/products/research-api/", "TikTok's Research API is limited to approved researchers. GrowthOS does not scrape.");
+export const discord = restricted("discord", "Discord", "community", "https://discord.com/developers/docs", "Requires a bot that server admins invite; only those channels may be read. Not yet supported.");
+export const telegram = restricted("telegram", "Telegram", "community", "https://core.telegram.org/bots/api", "The Bot API only sees chats the bot was added to. Not yet supported.");

@@ -1,5 +1,5 @@
-import { walletMode, CHAINS, txExplorerUrl } from "@/server/integrations/circle/config";
-import { agentAddress } from "@/server/integrations/circle/signer";
+import { CHAINS, txExplorerUrl } from "@/server/integrations/circle/config";
+import type { SignableWallet } from "@/server/integrations/circle/signer";
 import { toMicro } from "@/lib/money";
 
 /**
@@ -20,28 +20,33 @@ async function kit(): Promise<Kit> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyAdapter = any;
-let adapterP: Promise<AnyAdapter> | null = null;
+const adapters = new Map<string, Promise<AnyAdapter>>();
 
-async function adapter(): Promise<AnyAdapter> {
-  adapterP ??= (async () => {
-    const mode = walletMode();
-    if (mode === "circle_dcw") {
-      const { createCircleWalletsAdapter } = await import("@circle-fin/adapter-circle-wallets");
-      return createCircleWalletsAdapter({ apiKey: process.env.CIRCLE_API_KEY!, entitySecret: process.env.CIRCLE_ENTITY_SECRET! });
-    }
-    if (mode === "local_testnet") {
-      const { createViemAdapterFromPrivateKey } = await import("@circle-fin/adapter-viem-v2");
-      return createViemAdapterFromPrivateKey({ privateKey: process.env.AGENT_PRIVATE_KEY! });
-    }
-    throw new Error("No agent wallet configured");
-  })();
-  return adapterP;
+/** One adapter per custody type: Circle Wallets (addresses passed explicitly) or a viem testnet key. */
+async function adapter(provider: string): Promise<AnyAdapter> {
+  if (!adapters.has(provider)) {
+    adapters.set(
+      provider,
+      (async () => {
+        if (provider === "circle_dcw") {
+          const { createCircleWalletsAdapter } = await import("@circle-fin/adapter-circle-wallets");
+          return createCircleWalletsAdapter({ apiKey: process.env.CIRCLE_API_KEY!, entitySecret: process.env.CIRCLE_ENTITY_SECRET! });
+        }
+        if (provider === "local_testnet") {
+          const { createViemAdapterFromPrivateKey } = await import("@circle-fin/adapter-viem-v2");
+          return createViemAdapterFromPrivateKey({ privateKey: process.env.AGENT_PRIVATE_KEY! });
+        }
+        throw new Error("This workspace has no agent wallet");
+      })(),
+    );
+  }
+  return adapters.get(provider)!;
 }
 
 /** Circle-custodied wallets are addressed explicitly ("developer-controlled addressing"). */
-async function ctx(chain: string) {
-  const a = await adapter();
-  return walletMode() === "circle_dcw" ? { adapter: a, chain, address: agentAddress()! } : { adapter: a, chain };
+async function ctx(chain: string, w: SignableWallet) {
+  const a = await adapter(w.provider);
+  return w.provider === "circle_dcw" ? { adapter: a, chain, address: w.address! } : { adapter: a, chain };
 }
 
 export interface ChainTxResult {
@@ -51,10 +56,10 @@ export interface ChainTxResult {
   steps: { name: string; state: string; txHash?: string; explorerUrl?: string }[];
 }
 
-export async function appKitSend(p: { chain: string; to: string; amount: string }): Promise<ChainTxResult> {
+export async function appKitSend(w: SignableWallet, p: { chain: string; to: string; amount: string }): Promise<ChainTxResult> {
   const k = await kit();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const step = await k.send({ from: (await ctx(p.chain)) as any, to: p.to, amount: p.amount, token: "USDC" });
+  const step = await k.send({ from: (await ctx(p.chain, w)) as any, to: p.to, amount: p.amount, token: "USDC" });
   return {
     state: step.state,
     txHash: step.txHash ?? null,
@@ -63,13 +68,13 @@ export async function appKitSend(p: { chain: string; to: string; amount: string 
   };
 }
 
-export async function appKitBridge(p: { fromChain: string; toChain: string; amount: string }): Promise<ChainTxResult> {
+export async function appKitBridge(w: SignableWallet, p: { fromChain: string; toChain: string; amount: string }): Promise<ChainTxResult> {
   const k = await kit();
   const res = await k.bridge({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    from: (await ctx(p.fromChain)) as any,
+    from: (await ctx(p.fromChain, w)) as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    to: (await ctx(p.toChain)) as any,
+    to: (await ctx(p.toChain, w)) as any,
     amount: p.amount,
   });
   const last = [...res.steps].reverse().find((s) => s.txHash);

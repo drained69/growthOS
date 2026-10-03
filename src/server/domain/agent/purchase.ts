@@ -4,8 +4,9 @@ import * as s from "@/server/db/schema";
 import { mergeMode } from "@/server/db/helpers";
 import { canonicalJson, newId, sha256 } from "@/server/lib/ids";
 import { fmtUsdc, microToDecimal, toMicro } from "@/lib/money";
-import { walletMode, ARC } from "@/server/integrations/circle/config";
-import { getAgentSigner } from "@/server/integrations/circle/signer";
+import { ARC } from "@/server/integrations/circle/config";
+import { signerFor } from "@/server/integrations/circle/signer";
+import { getWallet, walletIsLive } from "@/server/integrations/circle/wallets";
 import { quote, pay } from "@/server/integrations/circle/x402";
 import { servicesWithCapability, registerBundledSignalsService } from "@/server/integrations/circle/marketplace";
 import { demoCompanyIntel, demoCreatorAudience, type EnrichmentSignal } from "@/server/demo/enrichment";
@@ -182,7 +183,8 @@ export async function executePurchase(
   let httpStatus: number | null = null;
   let failure: string | null = null;
 
-  const signer = walletMode() === "unconfigured" ? null : await getAgentSigner();
+  const wallet = await getWallet(db, a.projectId);
+  const signer = walletIsLive(wallet) && !wallet!.frozen ? signerFor(wallet) : null;
   if (signer && a.liveQuote?.kind === "quote") {
     try {
       log("operator", `Signing x402 authorization for ${fmtUsdc(a.priceMicro)} (EIP-712, ${signer.kind === "circle_dcw" ? "Circle wallet" : "server testnet key"})`);

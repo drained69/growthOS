@@ -1,81 +1,198 @@
+import Link from "next/link";
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
+import { AlertTriangle, Bot, Building2, FileText, ShieldCheck, Target } from "lucide-react";
 import { requireProject } from "@/server/auth/current";
+import { can, ROLE_LABEL } from "@/server/auth/access";
 import { schema as s } from "@/server/db/client";
+import { listMembers } from "@/server/domain/workspace/members";
+import { CHAINS } from "@/server/integrations/circle/config";
+import { AUTOPILOT_LABEL } from "@/server/jobs/scheduler";
 import { microToDecimal } from "@/lib/money";
-import { PROVIDERS } from "@/server/integrations/providers";
-import { PageHeader, Panel, StatusDot, Badge } from "@/components/ui";
-import { ProfileForm, IcpForm, PolicyForm } from "@/components/features/settings/settings-forms";
+import { relTime } from "@/lib/time";
+import { Badge, Callout, Card, CardHeader, CardBody, CardFooter, EmptyState, LinkButton, ModeBadge, PageHeader } from "@/components/ui";
+import { AutopilotControl, IcpForm, LeaveWorkspace, PolicyForm, ProfileForm, WorkspaceForm } from "@/components/features/settings/settings-forms";
+
+const SECTIONS = [
+  { id: "workspace", label: "Workspace", icon: <Building2 /> },
+  { id: "profile", label: "Product profile", icon: <FileText /> },
+  { id: "icp", label: "Ideal customer", icon: <Target /> },
+  { id: "policy", label: "Spend policy", icon: <ShieldCheck /> },
+  { id: "autopilot", label: "Autopilot", icon: <Bot /> },
+  { id: "danger", label: "Danger zone", icon: <AlertTriangle /> },
+];
 
 export default async function Settings() {
-  const { project, db } = await requireProject();
-  const [profile] = await db.select().from(s.productProfiles).where(eq(s.productProfiles.projectId, project.id));
-  const icps = await db.select().from(s.icps).where(eq(s.icps.projectId, project.id));
-  const [policy] = await db.select().from(s.policies).where(eq(s.policies.projectId, project.id));
-  const h = await headers();
-  const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host") ?? "localhost:3000"}`;
+  const { project, role, db, user } = await requireProject();
+  const pid = project.id;
+  const [[profile], icps, [policy], members] = await Promise.all([
+    db.select().from(s.productProfiles).where(eq(s.productProfiles.projectId, pid)),
+    db.select().from(s.icps).where(eq(s.icps.projectId, pid)),
+    db.select().from(s.policies).where(eq(s.policies.projectId, pid)),
+    listMembers(db, pid),
+  ]);
+  const canWorkspace = can(role, "manage_workspace");
+  const canPolicy = can(role, "manage_policy");
+  const demo = project.dataMode === "DEMO";
+  const owners = members.filter((m) => m.role === "owner").length;
+  const leaveBlocked = role === "owner" && owners <= 1 ? "You are the only owner — promote another member to owner first." : undefined;
+
   return (
     <div>
-      <PageHeader title="Settings" sub="Product intelligence, ICP, the founder's hard rules, and integrations." />
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Panel title={<span className="flex items-center gap-2">Product intelligence profile <Badge>{profile.generatedBy}{profile.founderEdited ? " · edited" : ""}</Badge></span>}>
-          <ProfileForm p={profile} />
-          <div className="mt-3 border-t border-line pt-2 text-[11px] text-ink-3">
-            Sources read: {profile.crawledSources.map((c) => `${c.url} (${c.ok ? "ok" : c.note})`).join(" · ") || "none"}
-          </div>
-        </Panel>
-        <div className="space-y-3">
-          <Panel title={<span>Policy engine <span className="num text-ink-4">v{policy.version}</span></span>}>
-            <PolicyForm
-              p={{
-                maxTransaction: microToDecimal(policy.maxTransactionMicro),
-                dailySpend: microToDecimal(policy.dailySpendMicro),
-                kolThreshold: microToDecimal(policy.kolApprovalThresholdMicro),
-                bountyThreshold: microToDecimal(policy.bountyApprovalThresholdMicro),
-                hardCeiling: microToDecimal(policy.hardCeilingMicro),
-                autonomous: policy.autonomousCategories,
-                approval: policy.approvalCategories,
-                chains: policy.allowedChains,
-                forbidden: policy.forbiddenActions,
-              }}
-            />
-            <p className="mt-3 text-[11px] text-ink-3">Enforced in code (src/lib/agent/policy.ts) on every structured action — not in a prompt. Changes are versioned and audit-logged.</p>
-          </Panel>
-          <Panel title="Ideal customer profile">
-            <IcpForm icps={icps} />
-          </Panel>
-        </div>
-        <Panel title="Conversion events (attribution webhook)">
-          <p className="text-[12px] text-ink-2">Send product events (signup, wallet connect, SDK key created, …) with the visitor&apos;s <code className="num">gos_ref</code> to attribute them to experiments. Requests are HMAC-signed.</p>
-          <pre className="num mt-2 overflow-x-auto rounded bg-bg p-2.5 text-[11px] leading-relaxed text-ink-2">{`POST ${origin}/api/events
-x-growthos-project: ${project.id}
-x-growthos-signature: t=<unix>,v1=hex(HMAC_SHA256(secret, "<t>.<body>"))
+      <PageHeader
+        title="Settings"
+        description="Workspace details, the product profile that drives discovery, your ideal customer, and the founder's hard spending rules."
+        meta={
+          <>
+            <ModeBadge mode={project.dataMode} />
+            <span>
+              Your role: <span className="text-ink-2">{ROLE_LABEL[role]}</span>
+            </span>
+          </>
+        }
+        actions={
+          <>
+            <LinkButton href="/app/team">Team</LinkButton>
+            <LinkButton href="/app/integrations">Integrations</LinkButton>
+          </>
+        }
+      />
 
-{"event":"sdk_key_created","ref":"<gos_ref>","visitorId":"<your user id>",
- "idempotencyKey":"<unique>","occurredAt":"2026-10-03T12:00:00Z"}`}</pre>
-          <details className="mt-2 text-[12px]">
-            <summary className="cursor-pointer text-ink-3">Reveal signing secret</summary>
-            <code className="num mt-1 block break-all text-[11px] text-ink">{project.webhookSecret}</code>
-          </details>
-          <p className="mt-2 text-[11px] text-ink-3">Visits are recorded automatically by the tracked short link <code className="num">/r/&lt;referral code&gt;</code>, which then redirects to the UTM-tagged destination.</p>
-        </Panel>
-        <Panel title="Market data sources">
-          <ul className="space-y-2">
-            {PROVIDERS.map((p) => {
-              const st = p.status();
-              return (
-                <li key={p.id} className="text-[12px]">
-                  <span className="flex items-center gap-2">
-                    <StatusDot tone={st.available ? "good" : "idle"} /> {st.name}
-                    {st.requiresEnv.length > 0 && <span className="num text-[10.5px] text-ink-4">{st.requiresEnv.join(", ")}</span>}
-                  </span>
-                  <span className="ml-3.5 text-[11px] text-ink-3">{st.note}</span>
-                </li>
-              );
-            })}
+      <div className="grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="hidden lg:block">
+          <ul className="sticky top-4 space-y-0.5">
+            {SECTIONS.map((x) => (
+              <li key={x.id}>
+                <a href={`#${x.id}`} className="flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[12.5px] text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink [&_svg]:size-3.5">
+                  {x.icon}
+                  {x.label}
+                </a>
+              </li>
+            ))}
           </ul>
-          <p className="mt-3 text-[11px] text-ink-3">Official APIs only, within their terms and rate limits. No scraping behind logins, no bypassing access controls. Unavailable sources return nothing rather than invented data.</p>
-        </Panel>
+        </nav>
+
+        <div className="min-w-0 space-y-4">
+          {!canWorkspace && !canPolicy && <Callout tone="info" title="Read-only">Your role can view settings but not change them. Ask an owner or admin for changes.</Callout>}
+
+          <Card id="workspace" className="scroll-mt-4">
+            <CardHeader title="Workspace" description="Name and public links for this product." icon={<Building2 />} />
+            <WorkspaceForm w={project} disabled={!canWorkspace} />
+          </Card>
+
+          <Card id="profile" className="scroll-mt-4">
+            <CardHeader
+              title="Product intelligence profile"
+              description="What GrowthOS believes your product is. Edit anything that is wrong — search terms here drive discovery."
+              icon={<FileText />}
+              action={
+                profile && (
+                  <>
+                    <Badge>{profile.generatedBy}</Badge>
+                    {profile.founderEdited && <Badge tone="info">edited</Badge>}
+                  </>
+                )
+              }
+            />
+            {profile ? (
+              <>
+                <ProfileForm p={profile} disabled={!canWorkspace} />
+                <CardFooter className="block">
+                  <span className="label mr-2">Sources read</span>
+                  {profile.crawledSources.length ? (
+                    profile.crawledSources.map((c) => (
+                      <span key={c.url} className="mr-3 inline-flex items-center gap-1">
+                        <span className={c.ok ? "text-good" : "text-critical"}>{c.ok ? "✓" : "✕"}</span>
+                        <span className="num text-ink-2">{c.url}</span>
+                        {!c.ok && c.note && <span className="text-ink-4">({c.note})</span>}
+                      </span>
+                    ))
+                  ) : (
+                    <span>None — the profile was drafted from your description only.</span>
+                  )}
+                </CardFooter>
+              </>
+            ) : (
+              <CardBody>
+                <EmptyState title="No product profile" description="The profile is created during onboarding from your product's public pages." action={<LinkButton href="/onboarding">Open onboarding</LinkButton>} />
+              </CardBody>
+            )}
+          </Card>
+
+          <Card id="icp" className="scroll-mt-4">
+            <CardHeader title="Ideal customer profile" description="Who the operator qualifies companies against." icon={<Target />} />
+            {icps.length ? (
+              <IcpForm icps={icps} disabled={!canWorkspace} />
+            ) : (
+              <CardBody className="text-[12.5px] text-ink-3">No ICP yet. It is proposed from the product profile during onboarding step 2.</CardBody>
+            )}
+          </Card>
+
+          <Card id="policy" className="scroll-mt-4">
+            <CardHeader
+              title="Spend policy"
+              description="Enforced in code by a deterministic policy engine on every structured action — not in a prompt."
+              icon={<ShieldCheck />}
+              action={policy && <Badge className="num">v{policy.version}</Badge>}
+            />
+            {policy ? (
+              <>
+                <PolicyForm
+                  disabled={!canPolicy}
+                  chains={Object.entries(CHAINS).map(([id, c]) => ({ id, label: c.label }))}
+                  p={{
+                    maxTransaction: microToDecimal(policy.maxTransactionMicro),
+                    dailySpend: microToDecimal(policy.dailySpendMicro),
+                    kolThreshold: microToDecimal(policy.kolApprovalThresholdMicro),
+                    bountyThreshold: microToDecimal(policy.bountyApprovalThresholdMicro),
+                    hardCeiling: microToDecimal(policy.hardCeilingMicro),
+                    autonomous: policy.autonomousCategories,
+                    approval: policy.approvalCategories,
+                    chains: policy.allowedChains,
+                    forbidden: policy.forbiddenActions,
+                    tokens: policy.allowedTokens,
+                  }}
+                />
+                <CardFooter>Last changed {relTime(policy.updatedAt)}</CardFooter>
+              </>
+            ) : (
+              <CardBody className="text-[12.5px] text-ink-3">No policy yet — it is created in the final onboarding step.</CardBody>
+            )}
+          </Card>
+
+          <Card id="autopilot" className="scroll-mt-4">
+            <CardHeader
+              title="Autopilot"
+              description="How often the operator runs a full cycle on its own. Every action still passes the spend policy."
+              icon={<Bot />}
+              action={<Badge tone={project.autopilot === "off" ? "muted" : "good"} dot={project.autopilot !== "off"}>{AUTOPILOT_LABEL[project.autopilot] ?? project.autopilot}</Badge>}
+            />
+            {demo && (
+              <div className="px-4 pt-4">
+                <Callout tone="info">Autopilot runs on live workspaces only. Demo workspaces run cycles on demand.</Callout>
+              </div>
+            )}
+            <AutopilotControl value={project.autopilot} labels={AUTOPILOT_LABEL} disabled={!canPolicy} demo={demo} />
+            <CardFooter>
+              <span>{project.lastCycleAt ? `Last cycle ${relTime(project.lastCycleAt)}` : "No cycle has run yet"}</span>
+              <Link href="/app/runs" className="hover:text-ink">
+                View runs →
+              </Link>
+            </CardFooter>
+          </Card>
+
+          <Card id="danger" className="scroll-mt-4 border-critical/30">
+            <CardHeader title="Danger zone" icon={<AlertTriangle className="text-critical" />} />
+            <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5">
+              <div className="min-w-0">
+                <div className="text-[12.5px] font-medium text-ink">Leave this workspace</div>
+                <p className="mt-0.5 text-[12px] text-ink-3">
+                  {leaveBlocked ?? `Removes ${user.email} from ${project.name}. Data stays with the workspace.`}
+                </p>
+              </div>
+              <LeaveWorkspace workspace={project.name} blocked={leaveBlocked} />
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );

@@ -34,17 +34,17 @@ export const CHAINS: Record<string, { label: string; circle: string; explorer: s
 export const txExplorerUrl = (chain: string, hash: string) => `${CHAINS[chain]?.explorer ?? ARC.explorer}/tx/${hash}`;
 export const addressExplorerUrl = (chain: string, addr: string) => `${CHAINS[chain]?.explorer ?? ARC.explorer}/address/${addr}`;
 
-export type WalletMode = "circle_dcw" | "local_testnet" | "unconfigured";
+export type WalletProvider = "circle_dcw" | "local_testnet" | "unconfigured";
 
 /**
- * Which agent wallet backs this deployment.
- *  - circle_dcw: Circle developer-controlled wallet. Keys live in Circle's custody; GrowthOS holds
- *    only an API key + entity secret, server-side. Preferred.
- *  - local_testnet: a server-side testnet key (the organizer example's model). Never sent to the
- *    browser or the LLM. Refused unless GROWTHOS_NETWORK=testnet.
+ * What this deployment can provision for a workspace:
+ *  - circle: Circle developer-controlled wallets. Keys live in Circle's custody; GrowthOS holds only
+ *    the API key + entity secret, server-side. Each workspace gets its own EOA on ARC-TESTNET.
+ *  - local: a single server-side testnet key (the organizer example's model). Development only;
+ *    refused unless GROWTHOS_NETWORK=testnet. Never sent to the browser or the LLM.
  */
-export function walletMode(): WalletMode {
-  if (process.env.CIRCLE_API_KEY && process.env.CIRCLE_ENTITY_SECRET && process.env.CIRCLE_WALLET_ID && process.env.CIRCLE_WALLET_ADDRESS) return "circle_dcw";
-  if (process.env.AGENT_PRIVATE_KEY && (process.env.GROWTHOS_NETWORK ?? "testnet") === "testnet") return "local_testnet";
-  return "unconfigured";
+export function platformCustody(): "circle" | "local" | null {
+  if (process.env.CIRCLE_API_KEY && process.env.CIRCLE_ENTITY_SECRET) return "circle";
+  if (process.env.AGENT_PRIVATE_KEY && (process.env.GROWTHOS_NETWORK ?? "testnet") === "testnet") return "local";
+  return null;
 }
