@@ -5,6 +5,7 @@ import { nextNumber } from "../db/helpers";
 import { newId, shortCode } from "../util/ids";
 import { fmtUsdc, microToDecimal, toMicro } from "../util/money";
 import { recordDecision, writeReceipt } from "../agent/decisions";
+import { experimentSpend, missionSpend } from "../agent/ledger";
 import { proposeFinancialAction, type ProposalOutcome } from "../agent/execute";
 import type { Logger } from "../intel/analyze";
 import { utmSlug } from "./attribution-links";
@@ -86,6 +87,17 @@ export async function createExperimentFromOpportunity(db: DB, p: { projectId: st
         successEvent: mission.goalEvent,
         days: 7,
       };
+  }
+  // Never commit more than the mission has uncommitted: total − spent − pending − reserved by live experiments.
+  const { spent, pending } = await missionSpend(db, mission.id);
+  const live = await db.select().from(s.experiments).where(and(eq(s.experiments.missionId, mission.id), inArray(s.experiments.status, ["proposed", "awaiting_approval", "running"])));
+  let reserved = 0;
+  for (const x of live) reserved += Math.max(0, x.budgetMicro - (await experimentSpend(db, x.id)));
+  const uncommitted = mission.budgetMicro - spent - pending - reserved;
+  if (uncommitted < toMicro(5)) throw new Error(`Only ${fmtUsdc(Math.max(0, uncommitted))} of the mission budget is uncommitted — stop or finish an experiment first`);
+  if (t.budget > uncommitted) {
+    log("strategist", `Budget trimmed from ${fmtUsdc(t.budget)} to the ${fmtUsdc(uncommitted)} still uncommitted`);
+    t.budget = Math.floor(uncommitted / 10_000) * 10_000;
   }
   const successTarget = t.successEvent === "demo_request" ? 1 : Math.max(2, Math.ceil(t.budget / (plannedCpa * 6)));
   const stopMaxCpa = t.successEvent === "demo_request" ? t.budget : plannedCpa * 6;

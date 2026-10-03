@@ -129,7 +129,7 @@ export async function seedDemo(db: DB, opts: { reset?: boolean } = {}): Promise<
     onboardingStep: 5,
     dataMode: "DEMO",
   });
-  await db.insert(s.productProfiles).values({ id: newId(), projectId, ...DEMO_PROFILE, crawledSources: [{ url: "https://meterline.example", ok: true, note: "DEMO profile (not crawled)" }], generatedBy: "demo" });
+  await db.insert(s.productProfiles).values({ id: newId(), projectId, ...DEMO_PROFILE, crawledSources: [{ url: "https://meterline.example", ok: false, note: "DEMO profile — not crawled" }], generatedBy: "demo" });
   await db.insert(s.icps).values([
     { id: newId(), projectId, tier: "primary", title: "AI agent developers", description: "Teams shipping agents that call paid APIs or move money", companySize: "2–50", segments: ["ai agents", "developers", "agent developers"], signals: ["Asks how agents pay for APIs", "Building with MCP / tool use", "Mentions x402"] },
     { id: newId(), projectId, tier: "secondary", title: "Web3 infrastructure teams", description: "10–100 person teams building developer-facing products on stablecoin rails", companySize: "10–100", segments: ["infrastructure", "web3 developers", "stablecoin"], signals: ["Stablecoin initiative announced", "Hiring smart contract engineers"] },
@@ -181,9 +181,9 @@ export async function seedDemo(db: DB, opts: { reset?: boolean } = {}): Promise<
   // fictional conversions. This gives the learning engine measured inputs to act on.
   const kolByHandle = async (h: string) => (await db.select().from(s.kols).where(and(eq(s.kols.projectId, projectId), eq(s.kols.handle, h))))[0];
   const history = [
-    { n: 1, title: "Creator campaign — @marcus_onchain", channel: "kol", cat: "kol", kol: "marcus_onchain", budget: 200, spent: 150, conv: 4, visits: 31, started: 6, hypothesis: "A large-audience creator post about agent payments will drive SDK signups." },
-    { n: 2, title: "Creator campaign — @priya_builds", channel: "kol", cat: "kol", kol: "priya_builds", budget: 150, spent: 100, conv: 21, visits: 74, started: 5, hypothesis: "A deep technical write-up by an infra engineer will convert developers who already understand x402." },
-    { n: 3, title: "Technical content — x402 quickstart", channel: "content", cat: "content", kol: null, budget: 60, spent: 31, conv: 14, visits: 52, started: 5, hypothesis: "A copy-paste x402 quickstart will convert developers searching for agent payments examples." },
+    { n: 1, title: "Creator campaign — @marcus_onchain", channel: "kol", cat: "kol", kol: "marcus_onchain", budget: 175, spent: 150, conv: 4, visits: 31, started: 6, hypothesis: "A large-audience creator post about agent payments will drive SDK signups." },
+    { n: 2, title: "Creator campaign — @priya_builds", channel: "kol", cat: "kol", kol: "priya_builds", budget: 120, spent: 100, conv: 21, visits: 74, started: 5, hypothesis: "A deep technical write-up by an infra engineer will convert developers who already understand x402." },
+    { n: 3, title: "Technical content — x402 quickstart", channel: "content", cat: "content", kol: null, budget: 40, spent: 31, conv: 14, visits: 52, started: 5, hypothesis: "A copy-paste x402 quickstart will convert developers searching for agent payments examples." },
   ];
   for (const h of history) {
     const kol = h.kol ? await kolByHandle(h.kol) : undefined;
