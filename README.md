@@ -343,6 +343,18 @@ Open http://localhost:3000 and click **SEE IT WORK**. No keys needed.
 
 > PGlite is single-process. Stop the dev server before running `db:seed` / `demo:run` against the same `.data/pglite`, or point `PGLITE_DIR` elsewhere. Use `DATABASE_URL` (Postgres) for multi-process deployments.
 
+## Deploy on Railway
+
+`railway.json` configures the build (`npm run build`), start (`npm start`, binds `$PORT`), a health check on `/api/health` and restart-on-failure.
+
+1. In Railway: **New project → Deploy from GitHub repo** → pick this repo and branch.
+2. **Add a PostgreSQL database** to the project, then on the web service set `DATABASE_URL=${{Postgres.DATABASE_URL}}`. Migrations run automatically on boot. (Without Postgres the app falls back to PGlite, which needs a volume mounted at `/app/.data` and a single replica.)
+3. Set the required variables: `SESSION_SECRET` (≥ 32 chars), `ENCRYPTION_KEY` (`openssl rand -hex 32`), `APP_URL` (the public URL, used in invite links). Optional: `CIRCLE_API_KEY` + `CIRCLE_ENTITY_SECRET` for workspace wallets, provider keys, `ANTHROPIC_API_KEY`, `CRON_SECRET`.
+4. **Generate a domain** under Networking and deploy.
+5. Optional: deploy `services/signals-api` as a second service from the same repo (start command `npm run signals`, set `SIGNALS_SELLER_ADDRESS`), and point `SIGNALS_API_URL` on the web service at its private URL.
+
+The job worker runs inside the web service. If you scale to several replicas, set `GROWTHOS_WORKER=off` on the web service and add a worker service with start command `npm run worker`.
+
 ## Environment variables
 
 See [`.env.example`](.env.example). In summary:
@@ -350,6 +362,7 @@ See [`.env.example`](.env.example). In summary:
 | Variable | Purpose |
 | --- | --- |
 | `SESSION_SECRET` | Session signing (required in production) |
+| `APP_URL` | Public base URL (invite links); falls back to the request host |
 | `ENCRYPTION_KEY` | AES-256-GCM key for integration credentials (required in production) |
 | `GROWTHOS_WORKER`, `WORKER_INTERVAL_MS` | In-process job worker on/off and poll interval |
 | `DATABASE_URL` | Postgres; empty → embedded PGlite |

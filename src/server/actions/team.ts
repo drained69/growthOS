@@ -17,7 +17,7 @@ export async function inviteMemberAction(email: string, role: string): Promise<A
     if (!isRole(role)) return { ok: false, error: "Pick a role" };
     const { token } = await createInvite(db, { projectId: project.id, email, role, invitedBy: user.id, actorRole });
     const h = await headers();
-    const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host") ?? "localhost:3000"}`;
+    const origin = process.env.APP_URL?.replace(/\/$/, "") ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000"}`;
     revalidatePath("/app/team");
     return { ok: true, data: { url: `${origin}/invite/${token}` }, message: "Invite created — share the link; it is shown only once" };
   } catch (e) {
