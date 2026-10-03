@@ -1,29 +1,51 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/server/auth/current";
-import { AuthForms } from "@/components/features/auth/auth-forms";
-import { enterDemoAction } from "@/server/actions";
+import { getDb } from "@/server/db/client";
+import { inviteByToken } from "@/server/domain/workspace/members";
+import { ROLE_LABEL, type Role } from "@/server/auth/access";
+import { Callout } from "@/components/ui";
+import { AuthShell, OrDivider } from "@/components/features/auth/auth-shell";
+import { DemoButton, LoginForm } from "@/components/features/auth/auth-forms";
 
 export const dynamic = "force-dynamic";
 
-export default async function Login() {
-  if (await currentUser()) redirect("/app");
+const safeNext = (n?: string) => (n && n.startsWith("/") && !n.startsWith("//") ? n : undefined);
+
+export default async function Login({ searchParams }: { searchParams: Promise<{ invite?: string; next?: string }> }) {
+  const sp = await searchParams;
+  const next = safeNext(sp.next);
+  const user = await currentUser();
+  if (user && !user.isGuest) redirect(sp.invite ? `/invite/${encodeURIComponent(sp.invite)}` : (next ?? "/app"));
+  const inv = sp.invite ? await inviteByToken(await getDb(), sp.invite) : null;
+  const qs = sp.invite ? `?invite=${encodeURIComponent(sp.invite)}` : "";
+
   return (
-    <div className="grid min-h-screen place-items-center px-4">
-      <div className="w-full max-w-sm">
-        <Link href="/" className="mb-6 flex items-center gap-2">
-          <span className="grid h-6 w-6 place-items-center rounded-[5px] bg-s1 text-[11px] font-bold text-white">G</span>
-          <span className="text-[15px] font-semibold tracking-tight">GrowthOS</span>
-        </Link>
-        <div className="rounded-md border border-line bg-surface p-5">
-          <form action={enterDemoAction}>
-            <button className="flex h-9 w-full items-center justify-center rounded border border-s1 bg-s1 text-[13px] font-medium text-white hover:bg-s1/90">See it work — enter the demo</button>
-          </form>
-          <p className="mt-2 text-[11.5px] text-ink-3">No keys needed. Seeded data is fictional and labelled DEMO; payments without a configured wallet are labelled SIMULATED.</p>
-          <div className="my-4 h-px bg-line" />
-          <AuthForms />
-        </div>
-      </div>
-    </div>
+    <AuthShell
+      title={inv ? `Join ${inv.projectName}` : "Sign in to GrowthOS"}
+      description={inv ? `Sign in as ${inv.invite.email} to accept your invite as ${ROLE_LABEL[inv.invite.role as Role] ?? inv.invite.role}.` : "Welcome back. Pick up where your operator left off."}
+      footer={
+        <>
+          New to GrowthOS?{" "}
+          <Link href={`/signup${qs}`} className="font-medium text-ink hover:text-s1">
+            Create an account
+          </Link>
+        </>
+      }
+    >
+      {sp.invite && !inv && (
+        <Callout tone="warn" title="This invite is invalid or has expired" className="mb-5">
+          You can still sign in. Ask a workspace admin for a new link.
+        </Callout>
+      )}
+      <LoginForm invite={inv ? sp.invite : undefined} next={next} email={inv?.invite.email} />
+      {!inv && (
+        <>
+          <OrDivider />
+          <DemoButton />
+          <p className="mt-2.5 text-center text-[11.5px] leading-relaxed text-ink-3">No keys needed. Seeded data is labelled DEMO; payments without a wallet are labelled SIMULATED.</p>
+        </>
+      )}
+    </AuthShell>
   );
 }

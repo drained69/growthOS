@@ -1,10 +1,13 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { ArrowRight, MousePointerClick } from "lucide-react";
+import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { ModeBadge } from "@/components/ui/badge";
 import type { GraphEdge, GraphNode, NodeType } from "@/server/domain/growth/graph";
 
 const COLUMNS: NodeType[][] = [["product"], ["narrative", "competitor", "community"], ["customer", "kol"], ["opportunity"], ["experiment"], ["spend"], ["result"], ["learning"]];
-const COLUMN_LABEL = ["Product", "Market", "Customers & KOLs", "Opportunities", "Experiments", "Spend", "Results", "Learning"];
+const COLUMN_LABEL = ["Product", "Market", "Customers & creators", "Opportunities", "Experiments", "Spend", "Results", "Learning"];
 /** Node colour encodes type (fixed categorical order); labels stay in ink. */
 const TYPE_COLOR: Record<NodeType, string> = {
   product: "var(--color-ink)",
@@ -66,8 +69,8 @@ export function GrowthGraph({ nodes, edges }: { nodes: GraphNode[]; edges: Graph
   }, [sel, edges, layout]);
   const selected = nodes.find((n) => n.id === sel);
   return (
-    <div className="grid gap-3 2xl:grid-cols-[1fr_280px]">
-      <div className="overflow-x-auto rounded-md border border-line bg-surface">
+    <div className="grid gap-4 2xl:grid-cols-[1fr_280px]">
+      <Card className="overflow-x-auto">
         <svg width={layout.w} height={layout.h} role="img" aria-label="Growth graph">
           {COLUMN_LABEL.map((l, i) => (
             <text key={l} x={20 + i * colW} y={20} fill="var(--color-ink-3)" fontSize={10} letterSpacing="0.08em">
@@ -91,9 +94,9 @@ export function GrowthGraph({ nodes, edges }: { nodes: GraphNode[]; edges: Graph
             if (!p) return null;
             const dim = connected && !connected.has(n.id);
             return (
-              <g key={n.id} transform={`translate(${p.x},${p.y})`} opacity={dim ? 0.3 : 1} className="cursor-pointer" onClick={() => setSel(sel === n.id ? null : n.id)}>
-                <rect width={128} height={30} rx={4} fill={sel === n.id ? "var(--color-surface-3)" : "var(--color-surface-2)"} stroke={sel === n.id ? "var(--color-s1)" : "var(--color-line-strong)"} />
-                <rect x={0} y={0} width={3} height={30} rx={1.5} fill={TYPE_COLOR[n.type]} />
+              <g key={n.id} transform={`translate(${p.x},${p.y})`} opacity={dim ? 0.3 : 1} className="cursor-pointer outline-none" tabIndex={0} role="button" aria-label={`${n.type}: ${n.label}`} onKeyDown={(ev) => (ev.key === "Enter" || ev.key === " ") && setSel(sel === n.id ? null : n.id)} onClick={() => setSel(sel === n.id ? null : n.id)}>
+                <rect width={128} height={30} rx={6} fill={sel === n.id ? "var(--color-surface-3)" : "var(--color-surface-2)"} stroke={sel === n.id ? "var(--color-s1)" : "var(--color-line-strong)"} />
+                <rect x={0} y={6} width={3} height={18} rx={1.5} fill={TYPE_COLOR[n.type]} />
                 <text x={10} y={13} fill="var(--color-ink)" fontSize={11} fontWeight={500}>
                   {n.label.length > 18 ? n.label.slice(0, 17) + "…" : n.label}
                 </text>
@@ -105,37 +108,40 @@ export function GrowthGraph({ nodes, edges }: { nodes: GraphNode[]; edges: Graph
             );
           })}
         </svg>
-      </div>
-      <div className="rounded-md border border-line bg-surface p-3.5">
-        <div className="label mb-2">Inspector</div>
-        {selected ? (
-          <div>
-            <div className="text-[11px] uppercase tracking-wide" style={{ color: TYPE_COLOR[selected.type] }}>
-              {selected.type}
+      </Card>
+      <Card className="self-start">
+        <CardHeader title="Inspector" icon={<MousePointerClick />} />
+        <CardBody>
+          {selected ? (
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="size-2 rounded-sm" style={{ background: TYPE_COLOR[selected.type] }} />
+                <span className="label">{selected.type}</span>
+                {selected.mode && <span className="ml-auto"><ModeBadge mode={selected.mode} /></span>}
+              </div>
+              <div className="mt-1.5 text-[15px] font-semibold leading-snug">{selected.label}</div>
+              {selected.sub && <div className="mt-0.5 text-[12px] text-ink-3">{selected.sub}</div>}
+              <div className="mt-3 text-[12px] text-ink-2">
+                <span className="num">{connected ? connected.size - 1 : 0}</span> connected node{connected && connected.size - 1 === 1 ? "" : "s"} highlighted along the chain.
+              </div>
+              {selected.href && (
+                <Link href={selected.href} className="mt-3 inline-flex items-center gap-1 text-[12px] text-s1 hover:underline">
+                  Inspect evidence <ArrowRight className="size-3" />
+                </Link>
+              )}
             </div>
-            <div className="mt-0.5 text-[15px] font-semibold">{selected.label}</div>
-            {selected.sub && <div className="text-[12px] text-ink-3">{selected.sub}</div>}
-            {selected.mode && <div className="mt-1 text-[11px] text-s7">{selected.mode}</div>}
-            <div className="mt-2 text-[12px] text-ink-2">
-              {connected ? connected.size - 1 : 0} connected node(s) highlighted along the chain.
-            </div>
-            {selected.href && (
-              <Link href={selected.href} className="mt-3 inline-block text-[12px] text-s1 hover:underline">
-                Inspect evidence →
-              </Link>
-            )}
+          ) : (
+            <p className="text-[12.5px] leading-relaxed text-ink-3">Click any node to trace it from product → market → opportunity → experiment → spend → result → learning, and open its evidence.</p>
+          )}
+          <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-line pt-3">
+            {(Object.keys(TYPE_COLOR) as NodeType[]).map((t) => (
+              <div key={t} className="flex items-center gap-2 text-[11.5px] capitalize text-ink-2">
+                <span className="size-2 rounded-sm" style={{ background: TYPE_COLOR[t] }} /> {t}
+              </div>
+            ))}
           </div>
-        ) : (
-          <p className="text-[12px] text-ink-3">Click any node to trace it from product → market → opportunity → experiment → spend → result → learning, and open its evidence.</p>
-        )}
-        <div className="mt-4 space-y-1 border-t border-line pt-3">
-          {(Object.keys(TYPE_COLOR) as NodeType[]).map((t) => (
-            <div key={t} className="flex items-center gap-2 text-[11px] text-ink-2">
-              <span className="h-2 w-2 rounded-sm" style={{ background: TYPE_COLOR[t] }} /> {t}
-            </div>
-          ))}
-        </div>
-      </div>
+        </CardBody>
+      </Card>
     </div>
   );
 }

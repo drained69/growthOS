@@ -15,7 +15,7 @@ const STATUSES = [
   { key: "dismissed", label: "Dismissed" },
 ];
 const typeLabel = (t: string) => TYPE_LABEL[t] ?? t.charAt(0) + t.slice(1).toLowerCase().replace(/_/g, " ");
-export const typeTone = (t: string): Tone => (t === "PRODUCT_ISSUE" ? "bad" : t === "KOL" ? "accent" : t === "CUSTOMER" ? "info" : "neutral");
+const typeTone = (t: string): Tone => (t === "PRODUCT_ISSUE" ? "bad" : t === "KOL" ? "accent" : t === "CUSTOMER" ? "info" : "neutral");
 
 export default async function Opportunities({ searchParams }: { searchParams: Promise<{ type?: string; status?: string }> }) {
   const { type = "ALL", status = "active" } = await searchParams;
@@ -69,7 +69,7 @@ export default async function Opportunities({ searchParams }: { searchParams: Pr
                 </span>
               </div>
               <div className="mt-2 text-[13.5px] font-medium leading-snug text-ink">{o.title}</div>
-              <ul className="mt-1.5 space-y-1 text-[12px] leading-snug text-ink-2">
+              <ul className="mb-3 mt-1.5 flex-1 space-y-1 text-[12px] leading-snug text-ink-2">
                 {o.whyNow.slice(0, 2).map((w) => (
                   <li key={w} className="flex gap-2">
                     <span className="mt-[6px] size-1 shrink-0 rounded-full bg-ink-4" />
@@ -77,7 +77,7 @@ export default async function Opportunities({ searchParams }: { searchParams: Pr
                   </li>
                 ))}
               </ul>
-              <div className="mt-auto flex items-center justify-between gap-3 border-t border-line pt-2.5 [margin-top:max(auto,12px)]">
+              <div className="flex items-center justify-between gap-3 border-t border-line pt-2.5">
                 <Confidence value={o.confidence} />
                 <span className="num flex items-center gap-3 text-[11.5px] text-ink-3">
                   <span>EV {o.expectedValue}</span>
