@@ -2,6 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { ArrowRight, CircleDollarSign, Compass, FlaskConical, RefreshCw, Sparkles, Target, TrendingUp } from "lucide-react";
 import { requireProject } from "@/server/auth/current";
+import { can } from "@/server/auth/access";
 import { schema as s } from "@/server/db/client";
 import { buildDailyBrief } from "@/server/domain/growth/brief";
 import { rebuildDailyBriefAction } from "@/server/actions/agent";
@@ -12,7 +13,7 @@ import { ActionButton } from "@/components/features/agent/action-button";
 type Brief = Awaited<ReturnType<typeof buildDailyBrief>>;
 
 export default async function DailyBrief() {
-  const { project, db } = await requireProject();
+  const { project, role, db } = await requireProject();
   const [row] = await db.select().from(s.dailyBriefs).where(eq(s.dailyBriefs.projectId, project.id)).orderBy(desc(s.dailyBriefs.date)).limit(1);
   const b: Brief = row ? (row.content as unknown as Brief) : await buildDailyBrief(db, project.id);
   const date = new Date(b.date + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
@@ -30,7 +31,7 @@ export default async function DailyBrief() {
             {!row && <span className="text-ink-4">· live preview, not yet saved</span>}
           </>
         }
-        actions={<ActionButton action={rebuildDailyBriefAction} label="Rebuild" icon={<RefreshCw />} />}
+        actions={can(role, "operate") && <ActionButton action={rebuildDailyBriefAction} label="Rebuild" icon={<RefreshCw />} />}
       />
 
       <Card className="border-accent/30 bg-gradient-to-b from-accent/[0.06] to-transparent">

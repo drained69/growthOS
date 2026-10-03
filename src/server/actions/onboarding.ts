@@ -66,7 +66,7 @@ export async function onboardIcpAction(): Promise<ActionResult> {
   }
 }
 
-export const MISSION_TEMPLATES = {
+const MISSION_TEMPLATES = {
   first_100_devs: { name: "First 100 Developers", goalEvent: "sdk_key_created", goalDescription: "verified SDK users" },
   find_buyers: { name: "Find 20 Buyers", goalEvent: "demo_request", goalDescription: "high-intent qualified companies requesting a demo" },
   own_narrative: { name: "Own the Narrative", goalEvent: "visit", goalDescription: "qualified visits from the target narrative" },

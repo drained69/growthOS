@@ -74,7 +74,7 @@ export async function generateBriefAction(kolId: string, experimentId?: string):
 
 export async function rebuildDailyBriefAction(): Promise<ActionResult> {
   try {
-    const { project, db } = await guard("view");
+    const { project, db } = await guard("operate");
     await buildDailyBrief(db, project.id);
     revalidatePath("/app/brief");
     return { ok: true, message: "Brief rebuilt" };
