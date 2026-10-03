@@ -42,6 +42,8 @@ export interface PolicyState {
   serviceKnown?: boolean;
   /** For reallocate_budget: unspent budget of each source experiment. */
   experimentRemainingMicro?: Record<string, number>;
+  /** DEMO project with no wallet: decisions run, execution is recorded as SIMULATED. */
+  simulation?: boolean;
 }
 
 export interface PolicyCheck {
@@ -116,7 +118,12 @@ export function evaluatePolicy(
   }
 
   // ── DENY rules: never overridable ──
-  add("WALLET_CONFIGURED", state.walletConfigured, "deny", state.walletConfigured ? "Agent wallet is configured" : "No agent wallet configured");
+  add(
+    "WALLET_CONFIGURED",
+    state.walletConfigured,
+    "deny",
+    state.simulation ? "SIMULATION — no wallet configured; nothing will move" : state.walletConfigured ? "Agent wallet is configured" : "No agent wallet configured",
+  );
   add("WALLET_NOT_FROZEN", !state.walletFrozen, "deny", state.walletFrozen ? "Founder kill switch is on" : "Wallet active");
   add("ALLOWED_TOKENS", policy.allowedTokens.includes(action.currency), "deny", `${action.currency} ${policy.allowedTokens.includes(action.currency) ? "is" : "is not"} an allowed token`);
 

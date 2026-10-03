@@ -1,5 +1,5 @@
 {
-  "id": "eba5ea51-3549-4e8f-a4e5-ba9b1471f0c0",
+  "id": "810a8781-ab25-47dc-a6ae-c7a6798bc63c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1326,6 +1326,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "source_url": {
           "name": "source_url",
           "type": "text",
@@ -1533,7 +1539,15 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "evidence_dedupe_key_unique": {
+          "name": "evidence_dedupe_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "dedupe_key"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -2702,6 +2716,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "subject_key": {
+          "name": "subject_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "type": {
           "name": "type",
           "type": "text",
@@ -2831,6 +2851,27 @@
             },
             {
               "expression": "number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "opps_project_subject_uq": {
+          "name": "opps_project_subject_uq",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "subject_key",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

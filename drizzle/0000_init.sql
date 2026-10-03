@@ -154,6 +154,7 @@ CREATE TABLE "evidence" (
 	"narrative_id" text,
 	"opportunity_id" text,
 	"purchase_id" text,
+	"dedupe_key" text NOT NULL,
 	"source_url" text NOT NULL,
 	"source_title" text,
 	"provider" text NOT NULL,
@@ -163,7 +164,8 @@ CREATE TABLE "evidence" (
 	"weight" real DEFAULT 1 NOT NULL,
 	"classified_by" text NOT NULL,
 	"data_mode" "data_mode" NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "evidence_dedupe_key_unique" UNIQUE("dedupe_key")
 );
 --> statement-breakpoint
 CREATE TABLE "experiments" (
@@ -301,6 +303,7 @@ CREATE TABLE "opportunities" (
 	"project_id" text NOT NULL,
 	"mission_id" text,
 	"number" integer NOT NULL,
+	"subject_key" text NOT NULL,
 	"type" text NOT NULL,
 	"secondary_type" text,
 	"title" text NOT NULL,
@@ -642,6 +645,7 @@ CREATE UNIQUE INDEX "mission_budget_cat_uq" ON "mission_budgets" USING btree ("m
 CREATE INDEX "missions_project_idx" ON "missions" USING btree ("project_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "narratives_project_key_uq" ON "narratives" USING btree ("project_id","key");--> statement-breakpoint
 CREATE UNIQUE INDEX "opps_project_number_uq" ON "opportunities" USING btree ("project_id","number");--> statement-breakpoint
+CREATE UNIQUE INDEX "opps_project_subject_uq" ON "opportunities" USING btree ("project_id","subject_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "people_project_handle_uq" ON "people" USING btree ("project_id","provider","handle");--> statement-breakpoint
 CREATE UNIQUE INDEX "issues_project_key_uq" ON "product_issues" USING btree ("project_id","key");--> statement-breakpoint
 CREATE INDEX "projects_owner_idx" ON "projects" USING btree ("owner_id");--> statement-breakpoint

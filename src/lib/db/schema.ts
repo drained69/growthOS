@@ -354,6 +354,8 @@ export const opportunities = pgTable(
     projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
     missionId: text("mission_id").references(() => missions.id, { onDelete: "set null" }),
     number: integer("number").notNull(),
+    /** e.g. "company:<id>" — one opportunity per subject; re-analysis updates it. */
+    subjectKey: text("subject_key").notNull(),
     type: text("type").notNull(), // CUSTOMER | KOL | NARRATIVE | PARTNERSHIP | CONTENT | COMMUNITY | DEVELOPER | PRODUCT_ISSUE | COMPETITOR | EVENT
     secondaryType: text("secondary_type"),
     title: text("title").notNull(),
@@ -373,7 +375,7 @@ export const opportunities = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex("opps_project_number_uq").on(t.projectId, t.number)],
+  (t) => [uniqueIndex("opps_project_number_uq").on(t.projectId, t.number), uniqueIndex("opps_project_subject_uq").on(t.projectId, t.subjectKey)],
 );
 
 export const evidence = pgTable(
@@ -388,6 +390,8 @@ export const evidence = pgTable(
     opportunityId: text("opportunity_id").references(() => opportunities.id, { onDelete: "cascade" }),
     /** x402 purchase that produced this evidence, if any. */
     purchaseId: text("purchase_id"),
+    /** Natural key so re-analysis never duplicates evidence. */
+    dedupeKey: text("dedupe_key").notNull().unique(),
     sourceUrl: text("source_url").notNull(),
     sourceTitle: text("source_title"),
     provider: text("provider").notNull(),
