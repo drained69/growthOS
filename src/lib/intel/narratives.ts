@@ -5,7 +5,7 @@ import { termHits } from "./signals";
  * Narrative engine: deterministic clustering of public conversation into themes.
  *  1. Candidate terms = product keywords ∪ frequent bigrams in the corpus.
  *  2. Each term maps to the set of posts containing it.
- *  3. Terms whose post sets overlap (Jaccard ≥ 0.45) merge into one narrative.
+ *  3. Terms whose post sets mostly overlap (containment ≥ 0.75) merge into one narrative.
  *  4. Volume/velocity over 7-day windows → lifecycle status.
  */
 
@@ -62,10 +62,11 @@ export function frequentBigrams(texts: string[], minDocs = 3, limit = 40): strin
     .map(([b]) => b);
 }
 
-const jaccard = (a: Set<string>, b: Set<string>) => {
+/** Overlap relative to the smaller set: a sub-phrase whose posts sit inside a bigger theme merges into it. */
+const containment = (a: Set<string>, b: Set<string>) => {
   let inter = 0;
   for (const x of a) if (b.has(x)) inter++;
-  return inter / (a.size + b.size - inter || 1);
+  return inter / (Math.min(a.size, b.size) || 1);
 };
 
 const titleCase = (s: string) => s.replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\bApi\b/g, "API").replace(/\bSdk\b/g, "SDK").replace(/\bUsdc\b/g, "USDC").replace(/\bAi\b/g, "AI").replace(/\bUx\b/g, "UX");
@@ -100,7 +101,7 @@ export function clusterNarratives(posts: NarrativePost[], ctx: { keywords: strin
   // Greedy agglomeration, largest term first.
   const clusters: { terms: string[]; ids: Set<string> }[] = [];
   for (const [term, ids] of [...termPosts.entries()].sort((a, b) => b[1].size - a[1].size)) {
-    const home = clusters.find((c) => jaccard(c.ids, ids) >= 0.45);
+    const home = clusters.find((c) => containment(c.ids, ids) >= 0.75);
     if (home) {
       home.terms.push(term);
       for (const id of ids) home.ids.add(id);
@@ -137,7 +138,8 @@ export function clusterNarratives(posts: NarrativePost[], ctx: { keywords: strin
   });
 
   return out
-    .filter((c) => c.postIds.length >= 3)
+    // Drop low-relevance chatter unless it is genuinely loud.
+    .filter((c) => c.postIds.length >= 3 && (c.relevance >= 15 || c.volume7d + c.volumePrev7d >= 5))
     .sort((a, b) => b.relevance * 2 + b.volume7d - (a.relevance * 2 + a.volume7d))
     .slice(0, ctx.maxClusters ?? 12);
 }

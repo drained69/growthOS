@@ -15,6 +15,7 @@ import { evaluatePolicy } from "./policy";
 import { createTransaction, loadPolicy, loadPolicyState, transition } from "./ledger";
 import { recordDecision, updateDecision, writeReceipt } from "./decisions";
 import { executePurchase } from "./purchase";
+import { applyReallocation } from "../growth/learning-run";
 
 type Mode = (typeof s.dataMode.enumValues)[number];
 
@@ -199,7 +200,15 @@ export async function resolveApproval(db: DB, a: { approvalId: string; userId: s
   await audit(db, { projectId: ap.projectId, actorType: "user", actorId: a.userId, action: "approval.approve", target: ap.id, data: { amountMicro: verdict.amountMicro, modified: !!a.modifiedAmount } });
   await updateDecision(db, decision.id, { action, policyVerdict: verdict.verdict, policyChecks: verdict.checks.map((c) => ({ rule: c.rule, passed: c.passed, detail: c.detail })), status: verdict.verdict === "DENY" ? "denied" : "approved", autonomous: false });
 
-  if (!tx) return { status: "approved" as const };
+  if (!tx) {
+    // Budget reallocation: no funds move, only experiment budgets change.
+    if (decision.kind === "reallocate_budget" && verdict.verdict !== "DENY" && parsed.data.action === "reallocate_budget") {
+      await applyReallocation(db, ap.projectId, parsed.data.missionId, decision.id, parsed.data.moves, (ap.details as { findings?: unknown[] }).findings ?? []);
+      await updateDecision(db, decision.id, { status: "executed" });
+    }
+    await writeReceipt(db, decision.id);
+    return { status: verdict.verdict === "DENY" ? ("denied" as const) : ("approved" as const) };
+  }
   if (verdict.verdict === "DENY") {
     await transition(db, tx.id, "DENIED", {}, "deny rule failed at approval re-check");
     await writeReceipt(db, decision.id);

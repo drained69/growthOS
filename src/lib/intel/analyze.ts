@@ -206,20 +206,28 @@ export async function analyzeProject(db: DB, projectId: string, log: Logger = ()
   log("narrative", `Clustered ${clusters.length} narratives: ${clusters.slice(0, 3).map((c) => `${c.label} (${c.velocityPct >= 0 ? "+" : ""}${c.velocityPct}%)`).join(", ")}`);
 
   // ── KOLs ────────────────────────────────────────────────────
-  const companyHandles = new Set([...byCompany.keys()].map((k) => k.toLowerCase()));
+  // Company spokespeople are customers, not KOLs: exclude anyone who posted on behalf of an org.
+  const companyVoices = new Set(posts.filter((p) => p.entities.companies.length).map((p) => p.authorHandle.toLowerCase()));
+  for (const c of byCompany.keys()) companyVoices.add(c.toLowerCase());
+  // One creator, several platforms: group by handle (identity match by handle is flagged as unverified).
   const byAuthor = new Map<string, Post[]>();
   for (const p of posts) {
-    if (companyHandles.has(p.authorHandle.toLowerCase())) continue;
-    const k = `${p.provider}::${p.authorHandle}`;
-    byAuthor.set(k, [...(byAuthor.get(k) ?? []), p]);
+    const h = p.authorHandle.toLowerCase();
+    if (companyVoices.has(h)) continue;
+    byAuthor.set(h, [...(byAuthor.get(h) ?? []), p]);
   }
   const narrativeTerms = narrativeIds.filter((n) => n.relevance >= 40).flatMap((n) => n.terms);
   const kolIds: { id: string; handle: string; provider: string; overall: number; campaignFit: number; followers: number | null; whyNow: string[]; angle: string; mode: Mode; scores: Record<string, unknown>; narrativeLabel?: string }[] = [];
-  for (const [k, aps] of byAuthor) {
+  for (const [, aps] of byAuthor) {
     const rel = aps.filter(relevant);
     const eng = rel.reduce((sum, p) => sum + engagementTotal(p.engagement), 0);
     if (!(rel.length >= 2 || (rel.length >= 1 && eng >= 150))) continue;
-    const [provider, handle] = k.split("::");
+    // Primary platform = where their on-topic work gets the most engagement.
+    const engByProvider = new Map<string, number>();
+    for (const p of rel) engByProvider.set(p.provider, (engByProvider.get(p.provider) ?? 0) + engagementTotal(p.engagement) + 1);
+    const provider = [...engByProvider.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const platforms = [...new Set(aps.map((p) => p.provider))];
+    const handle = aps[0].authorHandle;
     const followers = Math.max(0, ...aps.map((p) => p.authorFollowers ?? 0)) || null;
     // Purchased audience verification (x402) overrides the proxy, if we have it.
     const existing = await db.select().from(s.kols).where(and(eq(s.kols.projectId, projectId), eq(s.kols.provider, provider), eq(s.kols.handle, handle)));
@@ -237,6 +245,7 @@ export async function analyzeProject(db: DB, projectId: string, log: Logger = ()
       `${last7.length} on-topic post(s) this week${narr ? ` in "${narr.label}"` : ""}`,
       devAudience && aps.some((p) => ["github", "hackernews", "youtube"].includes(p.provider)) ? "Publishes on developer-native channels" : `Audience engages with ${termHits(rel.map(text).join(" "), keywords).slice(0, 3).join(", ")}`,
       mentionsUs ? "Has already mentioned us" : `Discusses ${termHits(rel.map(text).join(" "), keywords)[0] ?? "the category"} but has not covered ${project.name}`,
+      ...(platforms.length > 1 ? [`Active on ${platforms.join(" + ")} under the same handle (identity match unverified)`] : []),
     ];
     const angle = profile.valueProps[0]
       ? `“${profile.valueProps[0]}” — shown live, in the context of ${narr?.label ?? keywords[0]}`
@@ -254,7 +263,7 @@ export async function analyzeProject(db: DB, projectId: string, log: Logger = ()
     };
     const [kol] = await db
       .insert(s.kols)
-      .values({ id: newId(), projectId, provider, handle, displayName: aps[0].authorName, url: aps[0].authorUrl, followers, metrics, overallScore: sc.overall, whyNow, recommendedAngle: angle, dataMode: mode })
+      .values({ id: newId(), projectId, provider, handle, displayName: aps.find((p) => p.authorName)?.authorName ?? null, url: aps.find((p) => p.provider === provider)?.authorUrl ?? aps[0].authorUrl, followers, metrics, overallScore: sc.overall, whyNow, recommendedAngle: angle, dataMode: mode })
       .onConflictDoUpdate({ target: [s.kols.projectId, s.kols.provider, s.kols.handle], set: { followers, metrics, overallScore: sc.overall, whyNow, recommendedAngle: angle, dataMode: mode, updatedAt: new Date() } })
       .returning({ id: s.kols.id });
     for (const p of [...rel].sort((a, b) => engagementTotal(b.engagement) - engagementTotal(a.engagement)).slice(0, 3)) {
@@ -332,7 +341,11 @@ export async function analyzeProject(db: DB, projectId: string, log: Logger = ()
       dataMode: k.mode,
     });
   }
-  for (const n of narrativeIds.filter((n) => ["EMERGING", "ACCELERATING", "UNDEREXPLORED"].includes(n.status) && n.relevance >= 45)) {
+  const narrativeOppCandidates = narrativeIds
+    .filter((n) => ["EMERGING", "ACCELERATING", "UNDEREXPLORED"].includes(n.status) && n.relevance >= 45)
+    .sort((a, b) => b.relevance * Math.log10(10 + Math.max(0, b.velocity)) * b.v7 - a.relevance * Math.log10(10 + Math.max(0, a.velocity)) * a.v7)
+    .slice(0, 3);
+  for (const n of narrativeOppCandidates) {
     const voices = kolIds.filter((k) => n.voices.includes(k.handle));
     await upsertOpp({
       subjectKey: `narrative:${n.id}`,

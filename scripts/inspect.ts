@@ -1,0 +1,16 @@
+import { eq } from "drizzle-orm";
+import { getDb, schema as s } from "../src/lib/db/client";
+const db = await getDb();
+const [p] = await db.select().from(s.projects).where(eq(s.projects.dataMode, "DEMO"));
+const pid = p.id;
+console.log("COMPANIES");
+for (const c of await db.select().from(s.companies).where(eq(s.companies.projectId, pid))) console.log(` ${c.name}: overall ${c.overallScore} fit ${c.fitScore} intent ${c.intentScore} conf ${c.confidence} ${c.status}`);
+console.log("KOLS");
+for (const k of await db.select().from(s.kols).where(eq(s.kols.projectId, pid))) console.log(` @${k.handle} (${k.provider}, ${k.followers ?? "?"}): overall ${k.overallScore} campaignFit ${(k.metrics as any).campaignFit?.score} auth ${(k.metrics as any).authenticity?.score}`);
+console.log("NARRATIVES");
+for (const n of await db.select().from(s.narratives).where(eq(s.narratives.projectId, pid))) console.log(` ${n.label} [${n.terms.join(",")}] ${n.status} v7 ${n.volume7d} prev ${n.volumePrev7d} vel ${n.velocityPct}% rel ${n.relevance}`);
+console.log("ISSUES");
+for (const i of await db.select().from(s.productIssues).where(eq(s.productIssues.projectId, pid))) console.log(` ${i.label}: ${i.mentions7d}/${i.mentionsPrev7d} ${i.changePct}% blocks ${i.blocksAcquisition}`);
+console.log("OPPS");
+for (const o of await db.select().from(s.opportunities).where(eq(s.opportunities.projectId, pid))) console.log(` #${o.number} ${o.type} ${o.title} conf ${o.confidence} ev ${o.expectedValue} score ${o.overallScore} cost ${o.estimatedCostMicro / 1e6} ${o.status}`);
+process.exit(0);

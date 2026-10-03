@@ -85,10 +85,13 @@ export function scoreCompany(
     if ((bestByType.get(e.signalType) ?? 0) < v) bestByType.set(e.signalType, v);
   }
   const intentSorted = [...bestByType.entries()].sort((a, b) => b[1] - a[1]);
+  // Noisy-OR: independent signals each have a chance of indicating real intent; a 40-weight
+  // fresh signal alone ≈ 80. More independent signal types push toward 100 without double-counting.
+  const intentP = 1 - intentSorted.reduce((prod, [, v]) => prod * (1 - Math.min(0.95, v / 50)), 1);
   const buyingIntent: ScoreComponent = {
-    score: clamp(Math.round(intentSorted.reduce((s, [, v], i) => s + v * (i === 0 ? 1.2 : i < 3 ? 0.9 : 0.4), 0))),
+    score: clamp(Math.round(intentP * 100)),
     weight: COMPANY_WEIGHTS.buyingIntent,
-    reasons: intentSorted.slice(0, 4).map(([t, v]) => `${SIGNAL_LABEL[t]} (+${Math.round(v)})`),
+    reasons: intentSorted.slice(0, 4).map(([t, v]) => `${SIGNAL_LABEL[t]} (${Math.round(v)}/50)`),
   };
 
   // EVIDENCE QUALITY — independent sources, provider diversity, purchased verification.
@@ -136,6 +139,6 @@ export function scoreCompany(
  * signal diversity rises — so buying verified data can move it, but a prompt cannot.
  */
 export function confidenceFrom(evidenceQuality: number, distinctSignalTypes: number): number {
-  const c = 0.3 + 0.45 * (evidenceQuality / 100) + 0.22 * Math.min(1, distinctSignalTypes / 4);
-  return Math.round(Math.min(0.97, c) * 100) / 100;
+  const c = 0.25 + 0.45 * (evidenceQuality / 100) + 0.2 * Math.min(1, distinctSignalTypes / 5);
+  return Math.round(Math.min(0.95, c) * 100) / 100;
 }
