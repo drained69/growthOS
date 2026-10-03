@@ -1,0 +1,45 @@
+import { describe, it, expect } from "vitest";
+import { signWebhook, verifyWebhook } from "@/lib/security/hmac";
+import { canTransition } from "@/lib/agent/ledger";
+import { rateLimit } from "@/lib/security/ratelimit";
+import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { canonicalJson } from "@/lib/util/ids";
+
+describe("webhook HMAC", () => {
+  const secret = "s3cret";
+  const body = '{"event":"signup"}';
+  it("accepts a valid signature and rejects tampering, staleness and garbage", () => {
+    expect(verifyWebhook(secret, body, signWebhook(secret, body)).ok).toBe(true);
+    expect(verifyWebhook(secret, body + " ", signWebhook(secret, body)).ok).toBe(false);
+    expect(verifyWebhook(secret, body, signWebhook(secret, body, Math.floor(Date.now() / 1000) - 600)).reason).toMatch(/tolerance/);
+    expect(verifyWebhook(secret, body, "t=1,v1=zz").ok).toBe(false);
+    expect(verifyWebhook(secret, body, null).ok).toBe(false);
+  });
+});
+
+describe("transaction state machine", () => {
+  it("only allows legal transitions", () => {
+    expect(canTransition("PROPOSED", "AUTHORIZED")).toBe(true);
+    expect(canTransition("AUTHORIZED", "EXECUTING")).toBe(true);
+    expect(canTransition("PROPOSED", "SETTLED")).toBe(false); // no skipping policy/execution
+    expect(canTransition("DENIED", "AUTHORIZED")).toBe(false); // deny is terminal
+    expect(canTransition("SETTLED", "FAILED")).toBe(false);
+    expect(canTransition("AWAITING_APPROVAL", "EXECUTING")).toBe(false); // approval must authorize first
+  });
+});
+
+describe("misc security primitives", () => {
+  it("rate limits after capacity", () => {
+    const key = `t-${Math.random()}`;
+    for (let i = 0; i < 3; i++) expect(rateLimit(key, { capacity: 3, refillPerSec: 0.001 }).ok).toBe(true);
+    expect(rateLimit(key, { capacity: 3, refillPerSec: 0.001 }).ok).toBe(false);
+  });
+  it("hashes passwords with scrypt", () => {
+    const h = hashPassword("correct horse");
+    expect(verifyPassword("correct horse", h)).toBe(true);
+    expect(verifyPassword("wrong", h)).toBe(false);
+  });
+  it("canonical JSON is key-order independent", () => {
+    expect(canonicalJson({ b: 1, a: { d: 2, c: 3 } })).toBe(canonicalJson({ a: { c: 3, d: 2 }, b: 1 }));
+  });
+});
