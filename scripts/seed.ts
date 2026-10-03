@@ -1,5 +1,5 @@
-import { getDb } from "../src/lib/db/client";
-import { seedDemo, DEMO_EMAIL, DEMO_PASSWORD } from "../src/lib/demo/seed";
+import { getDb } from "../src/server/db/client";
+import { seedDemo, DEMO_EMAIL, DEMO_PASSWORD } from "../src/server/demo/seed";
 
 const db = await getDb();
 const id = await seedDemo(db, { reset: true });

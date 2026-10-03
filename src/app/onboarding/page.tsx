@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
-import { requireUser, currentProject } from "@/lib/auth/current";
-import { getDb, schema as s } from "@/lib/db/client";
+import { requireUser, currentProject } from "@/server/auth/current";
+import { getDb, schema as s } from "@/server/db/client";
 import { Panel, Badge, cx } from "@/components/ui";
-import { ProfileForm, IcpForm } from "@/components/settings-forms";
-import { ProductStep, GenerateIcp, MissionStep, AutonomyStep } from "@/components/onboarding-forms";
+import { ProfileForm, IcpForm } from "@/components/features/settings/settings-forms";
+import { ProductStep, GenerateIcp, MissionStep, AutonomyStep } from "@/components/features/onboarding/onboarding-forms";
 
 export const dynamic = "force-dynamic";
 

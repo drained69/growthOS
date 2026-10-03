@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { timingSafeEqual } from "node:crypto";
-import { getDb, schema as s } from "@/lib/db/client";
-import { runCycle } from "@/lib/agent/operator";
+import { getDb, schema as s } from "@/server/db/client";
+import { runCycle } from "@/server/domain/agent/operator";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;

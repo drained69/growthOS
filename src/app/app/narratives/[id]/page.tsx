@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { termHits } from "@/lib/intel/signals";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { termHits } from "@/server/domain/intel/signals";
 import { PageHeader, Panel, EvidenceItem, ModeBadge, Badge, KV, Velocity } from "@/components/ui";
 import { Columns } from "@/components/charts";
-import { DAY_MS } from "@/lib/util/time";
+import { DAY_MS } from "@/lib/time";
 
 export default async function Narrative({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

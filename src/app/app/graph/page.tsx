@@ -1,7 +1,7 @@
-import { requireProject } from "@/lib/auth/current";
-import { buildGraph } from "@/lib/growth/graph";
+import { requireProject } from "@/server/auth/current";
+import { buildGraph } from "@/server/domain/growth/graph";
 import { PageHeader } from "@/components/ui";
-import { GrowthGraph } from "@/components/growth-graph";
+import { GrowthGraph } from "@/components/features/graph/growth-graph";
 
 export default async function Graph() {
   const { project, db } = await requireProject();

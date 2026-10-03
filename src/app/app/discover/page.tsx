@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { and, desc, eq, gte } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { classifySignals, SIGNAL_LABEL, termHits } from "@/lib/intel/signals";
-import { analyzeMention } from "@/lib/intel/mentions";
-import { PROVIDERS } from "@/lib/providers";
-import { relTime, DAY_MS } from "@/lib/util/time";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { classifySignals, SIGNAL_LABEL, termHits } from "@/server/domain/intel/signals";
+import { analyzeMention } from "@/server/domain/intel/mentions";
+import { PROVIDERS } from "@/server/integrations/providers";
+import { relTime, DAY_MS } from "@/lib/time";
 import { PageHeader, Panel, ModeBadge, Badge, StatusDot, cx } from "@/components/ui";
 
 const FILTERS = [

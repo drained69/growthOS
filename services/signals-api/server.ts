@@ -11,7 +11,7 @@
 import express from "express";
 import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 import { formatUnits } from "viem";
-import { demoCompanyIntel, demoCreatorAudience } from "../../src/lib/demo/enrichment";
+import { demoCompanyIntel, demoCreatorAudience } from "../../src/server/demo/enrichment";
 
 const PORT = Number(process.env.SIGNALS_API_PORT ?? 4021);
 const SELLER = process.env.SIGNALS_SELLER_ADDRESS;

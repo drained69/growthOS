@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { experimentSpend } from "@/lib/agent/ledger";
-import { buildUtmUrl, EVENT_LABEL, type ConversionEventType } from "@/lib/growth/attribution-links";
-import { fmtUsdc } from "@/lib/util/money";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { experimentSpend } from "@/server/domain/agent/ledger";
+import { buildUtmUrl, EVENT_LABEL, type ConversionEventType } from "@/server/domain/growth/attribution-links";
+import { fmtUsdc } from "@/lib/money";
 import { PageHeader, Panel, KV, ModeBadge, Badge, EvidenceItem, TxState, Table, LinkBtn } from "@/components/ui";
-import { ActionButton } from "@/components/action-button";
-import { launchExperimentAction } from "@/app/actions";
+import { ActionButton } from "@/components/features/agent/action-button";
+import { launchExperimentAction } from "@/server/actions";
 
 export default async function Experiment({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

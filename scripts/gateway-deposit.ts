@@ -6,7 +6,7 @@
  */
 import { GatewayClient, CHAIN_CONFIGS } from "@circle-fin/x402-batching/client";
 import { parseUnits, type Hex } from "viem";
-import { walletMode } from "../src/lib/payments/config";
+import { walletMode } from "../src/server/integrations/circle/config";
 
 const amount = process.argv[2] ?? "1";
 const mode = walletMode();

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
 import { PageHeader, Panel, ModeBadge, Badge, Confidence, Empty, cx } from "@/components/ui";
-import { fmtUsdc } from "@/lib/util/money";
+import { fmtUsdc } from "@/lib/money";
 
 const TYPES = ["ALL", "CUSTOMER", "KOL", "NARRATIVE", "DEVELOPER", "PRODUCT_ISSUE", "COMPETITOR", "PARTNERSHIP", "CONTENT", "COMMUNITY", "EVENT"];
 

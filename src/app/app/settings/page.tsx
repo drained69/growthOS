@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { microToDecimal } from "@/lib/util/money";
-import { PROVIDERS } from "@/lib/providers";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { microToDecimal } from "@/lib/money";
+import { PROVIDERS } from "@/server/integrations/providers";
 import { PageHeader, Panel, StatusDot, Badge } from "@/components/ui";
-import { ProfileForm, IcpForm, PolicyForm } from "@/components/settings-forms";
+import { ProfileForm, IcpForm, PolicyForm } from "@/components/features/settings/settings-forms";
 
 export default async function Settings() {
   const { project, db } = await requireProject();

@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
-import { getDb, schema as s } from "../src/lib/db/client";
-import { runDemoStep, DEMO_STEPS } from "../src/lib/demo/script";
-import { ensureDemoUser } from "../src/lib/demo/seed";
+import { getDb, schema as s } from "../src/server/db/client";
+import { runDemoStep, DEMO_STEPS } from "../src/server/demo/script";
+import { ensureDemoUser } from "../src/server/demo/seed";
 
 /** Runs the guided demo headlessly — useful for CI and for checking the loop end to end. */
 const db = await getDb();

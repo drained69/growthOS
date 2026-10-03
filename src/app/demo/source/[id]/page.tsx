@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { DEMO_POSTS } from "@/lib/demo/seed";
+import { DEMO_POSTS } from "@/server/demo/seed";
 
 /** Every seeded DEMO "source" resolves here — clearly fictional, never pretending to be a real post. */
 export default async function DemoSource({ params }: { params: Promise<{ id: string }> }) {

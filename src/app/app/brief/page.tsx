@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { buildDailyBrief } from "@/lib/growth/brief";
-import { fmtUsdc } from "@/lib/util/money";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { buildDailyBrief } from "@/server/domain/growth/brief";
+import { fmtUsdc } from "@/lib/money";
 import { PageHeader, Panel, Stat, Velocity, ModeBadge } from "@/components/ui";
-import { ActionButton } from "@/components/action-button";
-import { rebuildDailyBriefAction } from "@/app/actions";
+import { ActionButton } from "@/components/features/agent/action-button";
+import { rebuildDailyBriefAction } from "@/server/actions";
 
 type Brief = Awaited<ReturnType<typeof buildDailyBrief>>;
 

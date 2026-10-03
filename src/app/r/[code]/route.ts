@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { getDb, schema as s } from "@/lib/db/client";
-import { recordConversion } from "@/lib/growth/attribution";
-import { buildUtmUrl } from "@/lib/growth/attribution-links";
-import { rateLimit, clientIp } from "@/lib/security/ratelimit";
+import { getDb, schema as s } from "@/server/db/client";
+import { recordConversion } from "@/server/domain/growth/attribution";
+import { buildUtmUrl } from "@/server/domain/growth/attribution-links";
+import { rateLimit, clientIp } from "@/server/security/ratelimit";
 
 export const dynamic = "force-dynamic";
 

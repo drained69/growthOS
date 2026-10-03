@@ -1,5 +1,5 @@
 import { createOnrampServerKit, createSessionRouteHandler } from "@circle-fin/onramp-kit/server";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
+import { SESSION_COOKIE, verifySessionToken } from "@/server/auth/session";
 
 export const dynamic = "force-dynamic";
 

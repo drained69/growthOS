@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
-import { getDb, schema as s } from "../src/lib/db/client";
-import { signWebhook } from "../src/lib/security/hmac";
+import { getDb, schema as s } from "../src/server/db/client";
+import { signWebhook } from "../src/server/security/hmac";
 /** Sends signed / tampered / replayed conversion events to a running server. */
 const db = await getDb();
 const [camp] = await db.select({ code: s.campaigns.referralCode, pid: s.experiments.projectId }).from(s.campaigns).innerJoin(s.experiments, eq(s.campaigns.experimentId, s.experiments.id)).limit(1);

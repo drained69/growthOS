@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db/client";
-import { walletMode } from "@/lib/payments/config";
-import { claudeEnabled } from "@/lib/llm/claude";
+import { getDb } from "@/server/db/client";
+import { walletMode } from "@/server/integrations/circle/config";
+import { claudeEnabled } from "@/server/integrations/llm/claude";
 
 export const dynamic = "force-dynamic";
 

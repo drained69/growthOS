@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { evaluatePolicy, DEFAULT_POLICY, type PolicyState } from "@/lib/agent/policy";
-import { parseFinancialAction } from "@/lib/agent/actions";
-import { toMicro } from "@/lib/util/money";
+import { evaluatePolicy, DEFAULT_POLICY, type PolicyState } from "../src/server/domain/agent/policy";
+import { parseFinancialAction } from "../src/server/domain/agent/actions";
+import { toMicro } from "../src/lib/money";
 
 const state = (o: Partial<PolicyState> = {}): PolicyState => ({
   walletConfigured: true,

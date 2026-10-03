@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { createPublicKey, verify } from "node:crypto";
-import { getDb, schema as s } from "@/lib/db/client";
-import { audit } from "@/lib/db/helpers";
-import { transition } from "@/lib/agent/ledger";
-import { writeReceipt } from "@/lib/agent/decisions";
+import { getDb, schema as s } from "@/server/db/client";
+import { audit } from "@/server/db/helpers";
+import { transition } from "@/server/domain/agent/ledger";
+import { writeReceipt } from "@/server/domain/agent/decisions";
 
 export const dynamic = "force-dynamic";
 

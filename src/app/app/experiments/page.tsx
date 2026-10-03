@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { activeMission, missionSummary } from "@/lib/views";
-import { fmtUsdc } from "@/lib/util/money";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { activeMission, missionSummary } from "@/server/queries/views";
+import { fmtUsdc } from "@/lib/money";
 import { PageHeader, Panel, Table, ModeBadge, Badge, Empty } from "@/components/ui";
 
 export default async function Experiments() {

@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { and, eq, sql } from "drizzle-orm";
-import { requireProject, userProjects } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { walletMode } from "@/lib/payments/config";
-import { claudeEnabled } from "@/lib/llm/claude";
-import { SideNav } from "@/components/nav";
+import { requireProject, userProjects } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { walletMode } from "@/server/integrations/circle/config";
+import { claudeEnabled } from "@/server/integrations/llm/claude";
+import { SideNav } from "@/components/layout/side-nav";
 import { ModeBadge, StatusDot } from "@/components/ui";
-import { ProjectSwitcher, CycleButton } from "@/components/shell-client";
-import { logoutAction } from "../actions";
+import { ProjectSwitcher, CycleButton } from "@/components/layout/shell-client";
+import { logoutAction } from "@/server/actions";
 
 export const dynamic = "force-dynamic";
 

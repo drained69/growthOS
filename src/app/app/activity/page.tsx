@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { recentDecisions, recentTransactions } from "@/lib/views";
-import { fmtUsdc } from "@/lib/util/money";
-import { relTime } from "@/lib/util/time";
-import { ARC, CHAINS } from "@/lib/payments/config";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { recentDecisions, recentTransactions } from "@/server/queries/views";
+import { fmtUsdc } from "@/lib/money";
+import { relTime } from "@/lib/time";
+import { ARC, CHAINS } from "@/server/integrations/circle/config";
 import { PageHeader, Panel, Table, TxState, ModeBadge, VerdictBadge, Badge, ExternalLink, shortHash } from "@/components/ui";
-import { ActionButton } from "@/components/action-button";
-import { DEMO_PAYOUT_FALLBACK } from "@/lib/growth/experiments";
-import { refreshSettlementsAction } from "@/app/actions";
+import { ActionButton } from "@/components/features/agent/action-button";
+import { DEMO_PAYOUT_FALLBACK } from "@/server/domain/growth/experiments";
+import { refreshSettlementsAction } from "@/server/actions";
 
 const RAIL: Record<string, string> = { gateway_x402: "x402 · Gateway", app_kit_send: "App Kit Send", app_kit_bridge: "App Kit Bridge", gateway_deposit: "Gateway deposit" };
 

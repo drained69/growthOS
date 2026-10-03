@@ -1,10 +1,10 @@
-import { requireProject } from "@/lib/auth/current";
-import { DEMO_STEPS } from "@/lib/demo/script";
-import { walletMode } from "@/lib/payments/config";
-import { SIGNALS_API_URL } from "@/lib/payments/marketplace";
-import { claudeEnabled } from "@/lib/llm/claude";
+import { requireProject } from "@/server/auth/current";
+import { DEMO_STEPS } from "@/server/demo/script";
+import { walletMode } from "@/server/integrations/circle/config";
+import { SIGNALS_API_URL } from "@/server/integrations/circle/marketplace";
+import { claudeEnabled } from "@/server/integrations/llm/claude";
 import { PageHeader, Panel, Empty, StatusDot, KV } from "@/components/ui";
-import { DemoRunner } from "@/components/demo-runner";
+import { DemoRunner } from "@/components/features/demo/demo-runner";
 
 async function sellerStatus(): Promise<{ ok: boolean; note: string }> {
   try {

@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq, or } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
 import { PageHeader, Panel, ModeBadge, Badge, Confidence, EvidenceItem, KV, ScoreBar } from "@/components/ui";
-import { ActionButton } from "@/components/action-button";
-import { createExperimentAction, dismissOpportunityAction, purchaseIntelAction } from "@/app/actions";
-import { fmtUsdc } from "@/lib/util/money";
-import { COMMIT_THRESHOLD } from "@/lib/agent/information-value";
+import { ActionButton } from "@/components/features/agent/action-button";
+import { createExperimentAction, dismissOpportunityAction, purchaseIntelAction } from "@/server/actions";
+import { fmtUsdc } from "@/lib/money";
+import { COMMIT_THRESHOLD } from "@/server/domain/agent/information-value";
 
 export default async function Opportunity({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

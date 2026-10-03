@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { and, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { generateKolBrief, type KolBrief } from "@/lib/growth/kol-brief";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { generateKolBrief, type KolBrief } from "@/server/domain/growth/kol-brief";
 import { PageHeader, Panel, Badge, ModeBadge } from "@/components/ui";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

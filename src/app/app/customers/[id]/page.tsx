@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
 import { PageHeader, Panel, ScoreBar, Confidence, EvidenceItem, ModeBadge, Badge, KV, LinkBtn } from "@/components/ui";
-import { ActionButton } from "@/components/action-button";
-import { purchaseIntelAction } from "@/app/actions";
-import { COMPANY_WEIGHTS, type ScoreComponent } from "@/lib/scoring/intent";
-import { COMMIT_THRESHOLD } from "@/lib/agent/information-value";
+import { ActionButton } from "@/components/features/agent/action-button";
+import { purchaseIntelAction } from "@/server/actions";
+import { COMPANY_WEIGHTS, type ScoreComponent } from "@/server/domain/scoring/intent";
+import { COMMIT_THRESHOLD } from "@/server/domain/agent/information-value";
 
 const LABEL: Record<string, string> = { productFit: "Product fit", timing: "Timing", buyingIntent: "Buying intent", evidenceQuality: "Evidence quality", engagementOpportunity: "Engagement opportunity" };
 

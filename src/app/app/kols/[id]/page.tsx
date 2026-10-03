@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
 import { PageHeader, Panel, ScoreBar, EvidenceItem, ModeBadge, KV, LinkBtn, Badge } from "@/components/ui";
-import type { ScoreComponent } from "@/lib/scoring/intent";
-import { KOL_WEIGHTS } from "@/lib/scoring/kol";
-import { estimateKolCostMicro } from "@/lib/intel/analyze";
-import { fmtUsdc } from "@/lib/util/money";
+import type { ScoreComponent } from "@/server/domain/scoring/intent";
+import { KOL_WEIGHTS } from "@/server/domain/scoring/kol";
+import { estimateKolCostMicro } from "@/server/domain/intel/analyze";
+import { fmtUsdc } from "@/lib/money";
 
 const LABEL: Record<string, string> = { audienceFit: "Audience fit", topicAuthority: "Topic authority", recentRelevance: "Recent relevance", engagementQuality: "Engagement quality", narrativeFit: "Narrative fit", historicalProductFit: "Historical product fit", authenticity: "Authenticity signals", campaignFit: "Estimated campaign fit" };
 

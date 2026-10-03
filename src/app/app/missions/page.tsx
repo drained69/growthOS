@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { missionSummary, CATEGORY_LABEL } from "@/lib/views";
-import { fmtUsdc } from "@/lib/util/money";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { missionSummary, CATEGORY_LABEL } from "@/server/queries/views";
+import { fmtUsdc } from "@/lib/money";
 import { PageHeader, Panel, Stat, ModeBadge, Badge, Table, Empty } from "@/components/ui";
 import { GoalProgress, StackedBar } from "@/components/charts";
-import { ActionButton } from "@/components/action-button";
-import { runLearningAction } from "@/app/actions";
-import { EVENT_LABEL, type ConversionEventType } from "@/lib/growth/attribution-links";
+import { ActionButton } from "@/components/features/agent/action-button";
+import { runLearningAction } from "@/server/actions";
+import { EVENT_LABEL, type ConversionEventType } from "@/server/domain/growth/attribution-links";
 
 export default async function Missions() {
   const { project, db } = await requireProject();

@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { scoreCompany } from "@/lib/scoring/intent";
-import { scoreKol } from "@/lib/scoring/kol";
-import { classifySignals } from "@/lib/intel/signals";
-import { clusterNarratives } from "@/lib/intel/narratives";
-import { analyzeMention, clusterIssues } from "@/lib/intel/mentions";
-import { evaluateInformationValue } from "@/lib/agent/information-value";
-import { toMicro, microToDecimal, fmtUsdc } from "@/lib/util/money";
-import { DAY_MS } from "@/lib/util/time";
+import { scoreCompany } from "../src/server/domain/scoring/intent";
+import { scoreKol } from "../src/server/domain/scoring/kol";
+import { classifySignals } from "../src/server/domain/intel/signals";
+import { clusterNarratives } from "../src/server/domain/intel/narratives";
+import { analyzeMention, clusterIssues } from "../src/server/domain/intel/mentions";
+import { evaluateInformationValue } from "../src/server/domain/agent/information-value";
+import { toMicro, microToDecimal, fmtUsdc } from "../src/lib/money";
+import { DAY_MS } from "../src/lib/time";
 
 const NOW = Date.UTC(2026, 9, 3);
 const d = (days: number) => new Date(NOW - days * DAY_MS);

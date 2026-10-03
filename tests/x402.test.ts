@@ -3,9 +3,9 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { recoverTypedDataAddress, type Hex } from "viem";
-import { quote, pay } from "@/lib/payments/x402";
-import { ARC } from "@/lib/payments/config";
-import type { AgentSigner } from "@/lib/payments/signer";
+import { quote, pay } from "../src/server/integrations/circle/x402";
+import { ARC } from "../src/server/integrations/circle/config";
+import type { AgentSigner } from "../src/server/integrations/circle/signer";
 
 /**
  * Offline x402 round-trip against a mock seller that speaks the same wire format as

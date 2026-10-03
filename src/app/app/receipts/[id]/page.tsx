@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { canonicalJson, sha256 } from "@/lib/util/ids";
-import { fmtUsdc } from "@/lib/util/money";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { canonicalJson, sha256 } from "@/server/lib/ids";
+import { fmtUsdc } from "@/lib/money";
 import { PageHeader, Panel, KV, Badge, VerdictBadge, TxState, ModeBadge, ExternalLink } from "@/components/ui";
 
 type Body = {

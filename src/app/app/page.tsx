@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { and, desc, eq, gte, ne } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { activeMission, missionSummary, recentDecisions, recentTransactions, walletSnapshot, CATEGORY_LABEL } from "@/lib/views";
-import { fmtUsdc } from "@/lib/util/money";
-import { relTime, DAY_MS } from "@/lib/util/time";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { activeMission, missionSummary, recentDecisions, recentTransactions, walletSnapshot, CATEGORY_LABEL } from "@/server/queries/views";
+import { fmtUsdc } from "@/lib/money";
+import { relTime, DAY_MS } from "@/lib/time";
 import { Panel, PageHeader, Stat, ModeBadge, Confidence, Velocity, VerdictBadge, TxState, Badge, Empty, LinkBtn, shortHash } from "@/components/ui";
 import { GoalProgress, StackedBar, BarList, Sparkline } from "@/components/charts";
-import { walletMode } from "@/lib/payments/config";
+import { walletMode } from "@/server/integrations/circle/config";
 
 export default async function Overview() {
   const { project, db } = await requireProject();

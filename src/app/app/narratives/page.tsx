@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
 import { PageHeader, Panel, Table, ModeBadge, Badge, Velocity, Empty } from "@/components/ui";
 import { Sparkline } from "@/components/charts";
-import { DAY_MS } from "@/lib/util/time";
+import { DAY_MS } from "@/lib/time";
 
 const STATUS_TONE: Record<string, "good" | "info" | "warn" | "bad" | "neutral" | "accent"> = { EMERGING: "accent", ACCELERATING: "good", PEAKING: "warn", DECLINING: "bad", CONTROVERSIAL: "warn", UNDEREXPLORED: "info", STABLE: "neutral" };
 

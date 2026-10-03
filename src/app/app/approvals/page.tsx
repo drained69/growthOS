@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { fmtUsdc } from "@/lib/util/money";
-import { relTime } from "@/lib/util/time";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { fmtUsdc } from "@/lib/money";
+import { relTime } from "@/lib/time";
 import { PageHeader, Panel, Badge, Confidence, Empty, ModeBadge } from "@/components/ui";
-import { ApprovalControls } from "@/components/approval-controls";
+import { ApprovalControls } from "@/components/features/approvals/approval-controls";
 
 export default async function Approvals() {
   const { project, db } = await requireProject();

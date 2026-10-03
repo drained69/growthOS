@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { signWebhook, verifyWebhook } from "@/lib/security/hmac";
-import { canTransition } from "@/lib/agent/ledger";
-import { rateLimit } from "@/lib/security/ratelimit";
-import { hashPassword, verifyPassword } from "@/lib/auth/password";
-import { canonicalJson } from "@/lib/util/ids";
+import { signWebhook, verifyWebhook } from "../src/server/security/hmac";
+import { canTransition } from "../src/server/domain/agent/ledger";
+import { rateLimit } from "../src/server/security/ratelimit";
+import { hashPassword, verifyPassword } from "../src/server/auth/password";
+import { canonicalJson } from "../src/server/lib/ids";
 
 describe("webhook HMAC", () => {
   const secret = "s3cret";

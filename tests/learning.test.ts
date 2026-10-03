@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { evaluateExperiments, planReallocation, growthEfficiency, type ExperimentPerformance } from "@/lib/growth/learning";
-import { toMicro } from "@/lib/util/money";
+import { evaluateExperiments, planReallocation, growthEfficiency, type ExperimentPerformance } from "../src/server/domain/growth/learning";
+import { toMicro } from "../src/lib/money";
 
 const exp = (id: string, spent: number, conv: number, budget = 150): ExperimentPerformance => ({
   experimentId: id,

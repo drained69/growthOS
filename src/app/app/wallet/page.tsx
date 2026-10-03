@@ -1,18 +1,18 @@
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
-import { requireProject } from "@/lib/auth/current";
-import { schema as s } from "@/lib/db/client";
-import { activeMission, missionSummary, walletSnapshot } from "@/lib/views";
-import { walletMode, ARC, addressExplorerUrl } from "@/lib/payments/config";
-import { agentAddress } from "@/lib/payments/signer";
-import { arcUsdcBalanceMicro } from "@/lib/payments/wallet-balance";
-import { gatewayBalance } from "@/lib/payments/gateway";
-import { unifiedBalance } from "@/lib/payments/appkit";
-import { fmtUsdc } from "@/lib/util/money";
-import { DAY_MS } from "@/lib/util/time";
+import { requireProject } from "@/server/auth/current";
+import { schema as s } from "@/server/db/client";
+import { activeMission, missionSummary, walletSnapshot } from "@/server/queries/views";
+import { walletMode, ARC, addressExplorerUrl } from "@/server/integrations/circle/config";
+import { agentAddress } from "@/server/integrations/circle/signer";
+import { arcUsdcBalanceMicro } from "@/server/integrations/circle/wallet-balance";
+import { gatewayBalance } from "@/server/integrations/circle/gateway";
+import { unifiedBalance } from "@/server/integrations/circle/appkit";
+import { fmtUsdc } from "@/lib/money";
+import { DAY_MS } from "@/lib/time";
 import { PageHeader, Panel, Stat, KV, Badge, ExternalLink, StatusDot } from "@/components/ui";
-import { ActionButton } from "@/components/action-button";
-import { OnrampButton } from "@/components/onramp-button";
-import { toggleFreezeAction, refreshSettlementsAction } from "@/app/actions";
+import { ActionButton } from "@/components/features/agent/action-button";
+import { OnrampButton } from "@/components/features/wallet/onramp-button";
+import { toggleFreezeAction, refreshSettlementsAction } from "@/server/actions";
 
 async function attempt<T>(fn: () => Promise<T>): Promise<{ v: T | null; err: string | null }> {
   try {
